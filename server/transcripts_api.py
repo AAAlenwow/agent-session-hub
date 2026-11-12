@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from auth import current_user as auth
+from privacy import redact
 from transcripts_parse import (
     bundle_guard,
     decompress_limited,
@@ -86,7 +87,8 @@ async def upload_transcript(
     if not _EXT_ID_RE.match(ext_id):
         raise HTTPException(400, "ext_id 只允许字母数字与 . _ -（1~64 位）")
     cwd, project, message = _q(cwd), _q(project), _q(message)
-    machine = _q(machine)
+    # machine 是元数据（非会话正文），与事件层同一套脱敏口径
+    machine = redact(_q(machine))
 
     max_bytes = int(cfg.get("max_mb", 32)) * 1024 * 1024
     # 压缩态的体积上限与展开态一致：gzip 只会更小，超过就说明请求本身不正常

@@ -16,9 +16,10 @@ CWD = "/srv/old-repo"
 
 
 def up(api, sid, raw, agent="claude-code", cwd=CWD, message="", gz=False, token=None,
-       project=""):
+       project="", machine=""):
     qs = urllib.parse.urlencode({"agent": agent, "ext_id": sid, "cwd": cwd,
-                                 "message": message, "project": project})
+                                 "message": message, "project": project,
+                                 "machine": machine})
     payload = gzip.compress(raw) if gz else raw
     ctype = "application/gzip" if gz else "application/x-ndjson"
     return api.upload("/v1/transcripts?" + qs, payload, token=token or api.token, ctype=ctype)
@@ -46,6 +47,20 @@ def test_upload_parses_stats(people):
                 f"from transcripts where id = {d['transcript_id']}")
     assert row == f"claude-code|1|{CWD}"
     assert H.sql(f"select bundle from transcripts where id = {d['transcript_id']}") == "f"
+
+
+def test_machine_recorded_and_redacted(people):
+    """machine 元数据与事件层同一套脱敏口径：密钥串不能借 machine 原样入库。"""
+    p = people["alice"]
+    sid = uid("cc")
+    raw = H.cc_simple(CWD, sid, 2)
+    d = up(p["api"], sid, raw, machine="box01-sk-abcdefghijklmnop1234").json()
+    stored = H.sql(f"select machine from transcripts where id = {d['transcript_id']}")
+    assert stored == "box01-[REDACTED-KEY]", stored
+    # 正常机器名不受影响
+    d2 = up(p["api"], uid("cc"), raw, machine="hechao 的 mac").json()
+    assert H.sql(
+        f"select machine from transcripts where id = {d2['transcript_id']}") == "hechao 的 mac"
 
 
 def test_resubmit_identical_is_noop(people):

@@ -8,14 +8,12 @@
 import hashlib
 import json
 import os
-import re
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional
 
 import asyncpg
-import yaml
 from fastapi import Depends, FastAPI, HTTPException, Header
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field, field_validator
@@ -30,49 +28,9 @@ DATABASE_URL = os.environ.get(
 )
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
-# 部署配置：决定脱敏规则，以及 /v1/agent-prompt 生成的部署专属提示词。
-# 提示词随部署而异：不同服务器改各自的 hub-config.yaml，产出不同的规则文案。
-CONFIG_PATH = os.environ.get(
-    "HUB_CONFIG", os.path.join(os.path.dirname(__file__), "hub-config.yaml")
-)
-with open(CONFIG_PATH, encoding="utf-8") as _f:
-    HUB_CONFIG = yaml.safe_load(_f) or {}
-
-_REDACTIONS = [
-    (re.compile(r["pattern"]), r.get("replace", "[REDACTED]"))
-    for r in HUB_CONFIG.get("privacy", {}).get("redaction", [])
-]
-
-
-def redact(text: str) -> str:
-    """入库前脱敏：按部署配置的正则替换敏感内容。"""
-    for rx, repl in _REDACTIONS:
-        text = rx.sub(repl, text)
-    return text
-
-
-def strip_nul(v):
-    """Postgres 的 text 与 jsonb 都拒绝 NUL（\\u0000）：
-    hooks 上来的脏数据不带过滤直接入库，一条就会把接口打成 500。"""
-    if isinstance(v, str):
-        return v.replace("\x00", "")
-    if isinstance(v, list):
-        return [strip_nul(x) for x in v]
-    if isinstance(v, dict):
-        return {str(k).replace("\x00", ""): strip_nul(x) for k, x in v.items()}
-    return v
-
-
-def redact_obj(v):
-    """递归脱敏：payload / files 里的字符串同样要走 redact，
-    否则密钥只要不放 summary 就原样入库还能被搜到。"""
-    if isinstance(v, str):
-        return redact(v)
-    if isinstance(v, list):
-        return [redact_obj(x) for x in v]
-    if isinstance(v, dict):
-        return {k: redact_obj(x) for k, x in v.items()}
-    return v
+# 部署配置与入库净化（脱敏 / NUL 剥除）在 privacy.py：
+# 事件层（本文件）与原件层（transcripts_api.py）共用同一套口径。
+from privacy import HUB_CONFIG, redact, redact_obj, strip_nul
 
 
 @asynccontextmanager

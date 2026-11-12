@@ -60,12 +60,15 @@ def esc(s) -> str:
 
 
 def page(title: str, body: str) -> HTMLResponse:
-    return HTMLResponse(
+    resp = HTMLResponse(
         "<!doctype html><html lang=zh-CN><head><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1,"
         "viewport-fit=cover'><title>" + esc(title) + "</title>"
         "<style>" + CSS + "</style></head><body>" + body + "</body></html>"
     )
+    # 会话摘要属于团队内部数据：不允许浏览器 / 中间代理缓存
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 def _fmt_ts(ts) -> str:
@@ -83,6 +86,30 @@ async def _user_from_token(request: Request, token: str):
     )
 
 
+async def _resolve_user(request: Request):
+    """/m 页面统一鉴权：HttpOnly cookie，或 ?token= 直链。
+
+    直链 token 验证通过后立即换发 cookie 并 303 重定向到去掉 token 的地址：
+    后续点击不再依赖 URL 里的 token（否则点第一条会话就掉回登录页），
+    token 也不会留在手机浏览器历史与服务器访问日志里。
+    返回 (user, redirect)；redirect 非 None 时路由直接返回它。
+    """
+    token = request.cookies.get(COOKIE) or request.query_params.get("token", "")
+    user = await _user_from_token(request, token)
+    if not user:
+        return None, None
+    if not request.cookies.get(COOKIE):          # token 只出现在 URL → 换 cookie
+        qs = urllib.parse.urlencode(
+            [(k, v) for k, v in request.query_params.items() if k != "token"])
+        resp = RedirectResponse(request.url.path + ("?" + qs if qs else ""),
+                                status_code=303)
+        resp.set_cookie(COOKIE, token, max_age=30 * 86400, httponly=True,
+                        samesite="lax", path="/")
+        resp.headers["Cache-Control"] = "no-store"
+        return None, resp
+    return user, None
+
+
 def _login_page(err: str = "") -> HTMLResponse:
     msg = f"<div class=empty>{esc(err)}</div>" if err else (
         "<div class=sub>输入管理员给你的个人 token（AGENT_HUB_TOKEN）。</div>")
@@ -97,8 +124,9 @@ def _login_page(err: str = "") -> HTMLResponse:
 
 @router.get("/m", response_class=HTMLResponse)
 async def mobile_home(request: Request, q: str = "", machine: str = ""):
-    token = request.cookies.get(COOKIE) or request.query_params.get("token", "")
-    user = await _user_from_token(request, token)
+    user, redir = await _resolve_user(request)
+    if redir:
+        return redir
     if not user:
         return _login_page()
     pool = request.app.state.pool
@@ -165,8 +193,9 @@ async def mobile_home(request: Request, q: str = "", machine: str = ""):
 
 @router.get("/m/s/{sid}", response_class=HTMLResponse)
 async def mobile_session(request: Request, sid: int):
-    token = request.cookies.get(COOKIE) or request.query_params.get("token", "")
-    user = await _user_from_token(request, token)
+    user, redir = await _resolve_user(request)
+    if redir:
+        return redir
     if not user:
         return _login_page()
     pool = request.app.state.pool
@@ -175,9 +204,13 @@ async def mobile_session(request: Request, sid: int):
         "where s.id = $1", sid)
     if not s:
         return page("未找到", "<h1>会话不存在</h1><div class=sub><a href='/m'>← 返回</a></div>")
+    # 取**最新** MAX_EVENTS 条（长会话早期历史在手机上没有价值），再转回时间正序渲染
     evs = await pool.fetch(
         "select ts, kind, summary, files from events where session_id = $1 "
-        "order by ts limit $2", sid, MAX_EVENTS)
+        "order by ts desc limit $2", sid, MAX_EVENTS)
+    evs = list(reversed(evs))
+    total = await pool.fetchval(
+        "select count(*) from events where session_id = $1", sid)
     items = "".join(
         f"<div class=ev><div><span class=k>{esc(e['kind'])}</span>"
         f"<span class=t>{esc(_fmt_ts(e['ts']))}</span></div>"
@@ -189,7 +222,7 @@ async def mobile_session(request: Request, sid: int):
 <div class=sub><span class=chip>{esc(s['machine'] or '未知机器')}</span>
 <span class=chip>{esc(s['agent'])}</span>{esc(s['owner'])}</div>
 <div class=sub>cwd: {esc(s['cwd'])}</div>
-<div class=sub>更新: {esc(_fmt_ts(s['updated_at']))} · {len(evs)} 条事件</div>
+<div class=sub>更新: {esc(_fmt_ts(s['updated_at']))} · 最新 {len(evs)}/{total} 条事件</div>
 <h2>时间线</h2>{items}"""
     return page(s["project"] or "会话", body)
 
@@ -204,6 +237,7 @@ async def mobile_login(request: Request):
     resp = RedirectResponse("/m", status_code=303)
     resp.set_cookie(COOKIE, token, max_age=30 * 86400, httponly=True,
                     samesite="lax", path="/")
+    resp.headers["Cache-Control"] = "no-store"
     return resp
 
 

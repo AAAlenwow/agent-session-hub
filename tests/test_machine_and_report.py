@@ -7,6 +7,16 @@ import subprocess
 import sys
 
 HOOKS = pathlib.Path(__file__).resolve().parents[1] / "hooks"
+SERVER = pathlib.Path(__file__).resolve().parents[1] / "server"
+sys.path.insert(0, str(SERVER))
+
+
+def test_privacy_redact_applies_config_patterns():
+    """privacy.py 是事件层 / 原件层共享的脱敏入口：配置正则必须生效。"""
+    from privacy import redact
+    assert redact("key sk-abcdefghijklmnop1234 here") == "key [REDACTED-KEY] here"
+    assert redact("password: hunter2secret") == "[REDACTED-CREDENTIAL]"
+    assert redact("香港服务器") == "香港服务器"          # 正常机器名不受影响
 
 
 def _load(name: str):
