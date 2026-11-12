@@ -72,6 +72,7 @@ async def upload_transcript(
     ext_id: str = "",
     cwd: str = "",
     project: str = "",
+    machine: str = "",
     message: str = "",
     user=Depends(auth),
 ):
@@ -85,6 +86,7 @@ async def upload_transcript(
     if not _EXT_ID_RE.match(ext_id):
         raise HTTPException(400, "ext_id 只允许字母数字与 . _ -（1~64 位）")
     cwd, project, message = _q(cwd), _q(project), _q(message)
+    machine = _q(machine)
 
     max_bytes = int(cfg.get("max_mb", 32)) * 1024 * 1024
     # 压缩态的体积上限与展开态一致：gzip 只会更小，超过就说明请求本身不正常
@@ -143,12 +145,12 @@ async def upload_transcript(
                 """
                 insert into transcripts
                     (session_id, user_id, agent, ext_id, cwd, model, bytes, lines,
-                     sha256, content_gz, project,
+                     sha256, content_gz, project, machine,
                      input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
                      started_at, ended_at, bundle, members, active_seconds, rev)
                 values ($1, $2, $3, $4, $5, $6, $7, $8,
-                        $9, $10, $11, $12, $13, $14, $15,
-                        $16::timestamptz, $17::timestamptz, $18, $19, $20, $21)
+                        $9, $10, $11, $12, $13, $14, $15, $16,
+                        $17::timestamptz, $18::timestamptz, $19, $20, $21, $22)
                 on conflict (user_id, ext_id) do update set
                     session_id   = coalesce(excluded.session_id, transcripts.session_id),
                     cwd          = excluded.cwd,
@@ -158,6 +160,7 @@ async def upload_transcript(
                     sha256       = excluded.sha256,
                     content_gz   = excluded.content_gz,
                     project      = coalesce(nullif(excluded.project, ''), transcripts.project),
+                    machine      = coalesce(nullif(excluded.machine, ''), transcripts.machine),
                     input_tokens = excluded.input_tokens,
                     output_tokens= excluded.output_tokens,
                     cache_read_tokens     = excluded.cache_read_tokens,
@@ -173,7 +176,7 @@ async def upload_transcript(
                 """,
                 sess["id"] if sess else None, user["id"], agent, ext_id,
                 stats.get("cwd") or cwd, stats.get("model") or "", stats["bytes"],
-                stats["lines"], digest, gzip.compress(raw), project,
+                stats["lines"], digest, gzip.compress(raw), project, machine,
                 stats["input_tokens"], stats["output_tokens"],
                 stats["cache_read_tokens"], stats["cache_creation_tokens"],
                 _ts(stats["started_at"]), _ts(stats["ended_at"]),
@@ -358,7 +361,8 @@ async def list_transcripts(request: Request, limit: int = 50, project: str = "",
                t.started_at, t.ended_at, t.active_seconds, t.created_at,
                coalesce(extract(epoch from (t.ended_at - t.started_at)), 0)::bigint as wall_seconds,
                u.name as owner,
-               coalesce(nullif(t.project, ''), s.project) as project
+               coalesce(nullif(t.project, ''), s.project) as project,
+               coalesce(nullif(t.machine, ''), s.machine, '') as machine
         from transcripts t
         join users u on u.id = t.user_id
         left join sessions s on s.id = t.session_id

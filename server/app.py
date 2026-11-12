@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from auth import current_user as auth, sha256
 from prompt import build_prompt
+from mobile import router as mobile_router
 from transcripts_api import router as transcripts_router
 
 DATABASE_URL = os.environ.get(
@@ -89,9 +90,10 @@ async def lifespan(app: FastAPI):
     await app.state.pool.close()
 
 
-app = FastAPI(title="agent-hub", version="0.3.2", lifespan=lifespan)
+app = FastAPI(title="agent-hub", version="0.4.0", lifespan=lifespan)
 app.state.config = HUB_CONFIG          # 供原件层路由读取部署策略
 app.include_router(transcripts_router)
+app.include_router(mobile_router)
 
 
 def sha256_legacy(s: str) -> str:      # 兼容旧引用（实际使用 auth.sha256）
@@ -129,11 +131,13 @@ class SessionIn(BaseModel):
     ext_id: str = Field(..., description="CLI 侧 session_id")
     agent: str = "claude-code"
     project: str = ""
+    machine: str = Field("", description="上传机器名（hostname / 自定义标签）")
     cwd: str = ""
     repo: str = ""
     title: str = ""
 
-    @field_validator("ext_id", "agent", "project", "cwd", "repo", "title", mode="before")
+    @field_validator("ext_id", "agent", "project", "machine", "cwd", "repo", "title",
+                     mode="before")
     @classmethod
     def _no_nul(cls, v):
         return strip_nul(v)
@@ -192,11 +196,13 @@ async def ingest(body: IngestIn, user=Depends(auth)):
     project_id = await _resolve_project(s.project, s.repo)
     sess = await app.state.pool.fetchrow(
         """
-        insert into sessions (ext_id, user_id, agent, project, cwd, repo, title, project_id)
-        values ($1, $2, $3, $4, $5, $6, $7, $8)
+        insert into sessions (ext_id, user_id, agent, project, machine, cwd, repo,
+                              title, project_id)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         on conflict (user_id, ext_id) do update set
             agent   = excluded.agent,
             project = excluded.project,
+            machine = coalesce(nullif(excluded.machine, ''), sessions.machine),
             cwd     = excluded.cwd,
             repo    = excluded.repo,
             title   = coalesce(nullif(excluded.title, ''), sessions.title),
@@ -204,7 +210,7 @@ async def ingest(body: IngestIn, user=Depends(auth)):
             updated_at = now()
         returning id
         """,
-        s.ext_id, user["id"], s.agent, s.project, s.cwd, s.repo,
+        s.ext_id, user["id"], s.agent, s.project, redact(s.machine), s.cwd, s.repo,
         redact(s.title), project_id,
     )
     for e in body.events:
@@ -223,16 +229,36 @@ async def ingest(body: IngestIn, user=Depends(auth)):
 # ---------- 查询 ----------
 
 @app.get("/v1/sessions")
-async def list_sessions(limit: int = 50, user=Depends(auth)):
+async def list_sessions(limit: int = 50, machine: str = "", user=Depends(auth)):
     rows = await app.state.pool.fetch(
         """
-        select s.id, s.ext_id, s.agent, s.project, s.title, s.updated_at,
+        select s.id, s.ext_id, s.agent, s.project, s.machine, s.title, s.updated_at,
                u.name as owner,
                (select count(*) from events e where e.session_id = s.id) as event_count
         from sessions s join users u on u.id = s.user_id
+        where ($2 = '' or s.machine = $2)
         order by s.updated_at desc limit $1
         """,
-        max(1, min(limit, 200)),
+        max(1, min(limit, 200)), machine,
+    )
+    return [dict(r) for r in rows]
+
+
+@app.get("/v1/machines")
+async def list_machines(user=Depends(auth)):
+    """机器 / 服务器清单：会话从哪些机器传上来、各自多少会话、最后活跃时间。
+    手机端与多人多机协作的入口——先看机器，再看机器上的会话。"""
+    rows = await app.state.pool.fetch(
+        """
+        select coalesce(nullif(s.machine, ''), '(未上报)') as machine,
+               count(*) as session_count,
+               count(distinct s.user_id) as owners,
+               max(s.updated_at) as last_seen,
+               array_agg(distinct s.project) filter (where s.project <> '') as projects
+        from sessions s
+        group by 1
+        order by max(s.updated_at) desc
+        """
     )
     return [dict(r) for r in rows]
 
@@ -260,7 +286,7 @@ async def search(q: str, limit: int = 20, user=Depends(auth)):
     rows = await app.state.pool.fetch(
         """
         select e.id, e.ts, e.kind, e.summary, e.files,
-               s.id as session_id, s.agent, s.project, s.title,
+               s.id as session_id, s.agent, s.project, s.machine, s.title,
                u.name as owner
         from events e
         join sessions s on s.id = e.session_id

@@ -145,3 +145,32 @@ def test_agent_name_is_recorded(people):
     api, proj, sid = people["alice"]["api"], uid("svc"), uid("sess")
     post_events(api, sid, proj, agent="glm-4.6")
     assert H.sql(f"select agent from sessions where ext_id = '{sid}'") == "glm-4.6"
+
+
+def test_machine_is_recorded_and_queryable(people):
+    """机器溯源：会话从哪台机器传上来的，必须能查、能按机器过滤、能汇总。"""
+    api = people["alice"]["api"]
+    proj, sid = uid("mch"), uid("sess")
+    m = uid("hechao-mac")
+    body = {"session": {"ext_id": sid, "agent": "claude-code", "project": proj,
+                        "machine": m, "cwd": "/home/u/" + proj},
+            "events": [{"kind": "turn_end", "summary": "改了圣诞活动"}]}
+    assert api.post("/v1/events", body).status == 200
+
+    rows = api.get(f"/v1/sessions?machine={urllib.parse.quote(m)}").json()
+    assert [s["ext_id"] for s in rows] == [sid]
+    assert rows[0]["machine"] == m
+
+    # 搜索结果也要带机器名（手机端 / agent 靠它判断是哪台机子上的活）
+    hits = api.get(f"/v1/search?q={urllib.parse.quote('圣诞')}").json()
+    assert any(h["session_id"] and h.get("machine") == m for h in hits)
+
+    machines = api.get("/v1/machines").json()
+    hit = [x for x in machines if x["machine"] == m]
+    assert hit and hit[0]["session_count"] >= 1
+
+    # 同一会话再次上报但不带 machine：不能把已有机器名冲掉
+    body["session"].pop("machine")
+    body["events"] = [{"kind": "turn_end", "summary": "继续改"}]
+    assert api.post("/v1/events", body).status == 200
+    assert H.sql(f"select machine from sessions where ext_id = '{sid}'") == m

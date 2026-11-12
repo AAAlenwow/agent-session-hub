@@ -15,6 +15,7 @@ create table if not exists sessions (
   ext_id      text not null,               -- CLI 侧的 session_id
   agent       text not null default 'claude-code',  -- claude-code / codex / glm / minimax ...
   project     text not null default '',    -- 仓库名
+  machine     text not null default '',    -- 上传机器名（hostname / 自定义标签）
   cwd         text not null default '',
   repo        text not null default '',    -- git remote
   title       text not null default '',
@@ -63,6 +64,10 @@ create index if not exists idx_project_owners on project_owners (project_id, ass
 alter table sessions add column if not exists project_id bigint references projects(id);
 create index if not exists idx_sessions_project on sessions (project_id);
 
+-- v7: 机器溯源（会话从哪台机器/服务器传上来的）；老库用 migrations/007_machine.sql
+alter table sessions add column if not exists machine text not null default '';
+create index if not exists idx_sessions_machine on sessions (machine);
+
 -- 已有部署的升级方式（新库不需要，init 脚本会自动建全）：
 --   docker compose exec -T postgres psql -U agenthub -d agenthub < server/migrations/002_projects.sql
 --   docker compose exec -T postgres psql -U agenthub -d agenthub < server/migrations/003_transcripts.sql
@@ -76,6 +81,7 @@ create table if not exists transcripts (
   agent                  text not null default 'claude-code',
   ext_id                 text not null,          -- CLI 侧 session id（resume 用）
   cwd                    text not null default '', -- 原始机器上的仓库绝对路径
+  machine                text not null default '', -- 上传机器名（v7，原件层溯源）
   model                  text not null default '',
   bytes                  int not null default 0,
   lines                  int not null default 0,

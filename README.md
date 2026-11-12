@@ -216,7 +216,7 @@ curl -H "Authorization: Bearer <token>" https://mem.corp.local/v1/projects/api-g
 `list_team_projects()` 列出项目与现任负责人。`share_team_memory` 新增 `project` 参数，
 交接期间产生的结论可直接归档到项目下。
 
-已有 v1 部署升级（迁移必须按序跑完 002~006）：
+已有 v1 部署升级（迁移必须按序跑完 002~007，幂等可重复）：
 
 ```bash
 for f in server/migrations/0*.sql; do
@@ -324,6 +324,52 @@ pip install "mcp[cli]"    # 前置依赖
 ```
 
 然后就可以在任何 agent 里问："团队里谁改过限流？当时为什么从 100 调到 500？"
+
+### 机器名（会话从哪台机器 / 服务器传上来）
+
+每条会话都记录上传机器。默认取 `hostname`，建议每台机器设一个人类可读的别名：
+
+```bash
+export AGENT_HUB_MACHINE="hechao 的 mac"     # 或 "香港服务器" / "测试机-03"
+```
+
+- `GET /v1/machines` 汇总：机器名、会话数、涉及人数、最后活跃、涉及项目
+- `agenthub list` 输出多一列 `machine`
+- MCP 工具 `list_team_machines()`：agent 可自己回答「这些活是哪台机器上的」
+
+### 接入其他生态（dsh-go / DSH / 自研插件）
+
+不写 hook 也能接：`hooks/generic_report.py` 是稳定的上报契约，只需两个环境变量。
+
+```bash
+# 方式 1：插件里 spawn 一个子进程（最省事）
+echo '{"session":{"ext_id":"dsh-abc","agent":"dsh","project":"geeadmin"},
+       "events":[{"kind":"turn_end","summary":"圣诞活动逻辑改成满100送50"}]}' \
+  | python3 ~/.agent-hub/generic_report.py
+
+# 方式 2：命令行参数（cron / 一次性上报）
+python3 ~/.agent-hub/generic_report.py --session-id dsh-abc --agent dsh \
+  --project geeadmin --kind turn_end --summary "修好了限流"
+```
+
+DSH / dsh-go 的接法：在 DSH 插件里监听回合结束事件，把 `{ext_id, agent, project, machine}`
+和事件数组喂给上面的脚本即可；`AGENT_HUB_MACHINE` 设成手机或服务器的别名，
+这样手机端看到的就是「这条会话来自 iPhone / 香港服务器」。
+
+### 手机访问（不装 App）
+
+手机浏览器直接打开（个人 token 登录，30 天有效，只读）：
+
+```
+http://<hub 地址>:8421/m
+```
+
+页面结构：机器分组 → 该机器的会话列表（带最近一次 turn_end 摘要）→ 点进看完整时间线；
+顶部搜索框按关键词跨机检索。也可以 `http://<hub 地址>:8421/m?token=<个人 token>` 直接进。
+
+为什么做成服务端渲染的网页而不是 App：手机跑不了 stdio MCP，网页零安装、iOS/Android
+通吃；且只读，避免手机上误触回滚 / 改负责人这类破坏性操作。
+
 
 ## 测试
 

@@ -76,7 +76,12 @@ def build_prompt(cfg: dict) -> str:
       "（任务进展、修复说明、结论、待办等），可以直接用来回答"
       "「圣诞活动的逻辑是什么」「上次修到哪一步了」这类问题——先搜 turn_end，"
       "不够再让用户拉原件回放。")
+    a("")
+    a(f"每条会话都记录了**上传机器**（hostname，或成员用 AGENT_HUB_MACHINE 起的"
+      f"别名如「hechao 的 mac」「香港服务器」）。用户问「这是哪台机器上的活」时用"
+      f" `list_team_machines()`。手机上可直接打开 {url}/m 查看（个人 token 登录，只读）。")
     a("| `list_team_projects()` | 想知道团队有哪些项目、各自负责人是谁时 |")
+    a("| `list_team_machines()` | 想知道会话来自哪些机器 / 服务器、哪台机器在做什么时 |")
     a("| `get_project_handover(project)` | 接手别人的项目时：一次拿到历任负责人、上一任的历史会话、"
       "改动热点文件、用过的技能包与分享过的结论 |")
     a(f"| `share_team_memory(title, summary, files, tags)` | {m['share_when']} |")

@@ -206,6 +206,29 @@ def test_codex_notify_carries_rollout_answer(people, sandbox):
         f"{marker}活动迁移完成，配置见 act-de.json"
 
 
+GENERIC = ROOT / "hooks" / "generic_report.py"
+
+
+def test_generic_report_reports_machine_and_summary(people):
+    """通用上报契约：dsh-go 这类插件不写 hook，直接调这个脚本即可接入。"""
+    p = people["bob"]
+    sid, proj = uid("gen"), uid("geeadmin")
+    machine = uid("hk-server")
+    payload = json.dumps({"session": {"ext_id": sid, "agent": "dsh",
+                                      "project": proj, "machine": machine,
+                                      "cwd": "/root/" + proj},
+                          "events": [{"kind": "turn_end",
+                                      "summary": "圣诞活动逻辑：满100送50"}]})
+    r = run_hook(GENERIC, payload, p["token"])
+    assert r.returncode == 0, r.stderr
+    assert "ok" in r.stdout
+
+    assert H.sql(f"select agent || '|' || machine from sessions where ext_id = '{sid}'") \
+        == f"dsh|{machine}"
+    assert H.sql(f"select e.summary from events e join sessions s on s.id = e.session_id "
+                 f"where s.ext_id = '{sid}'") == "圣诞活动逻辑：满100送50"
+
+
 def test_codex_notify_ignores_bad_argv(people):
     p = people["bob"]
     assert run_hook(CODEX_HOOK, "not json", p["token"], argv=True).returncode == 0

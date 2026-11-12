@@ -10,12 +10,19 @@ MVP 只上报回合级事件；更细粒度（tool call）需要 tail 监听
 """
 import json
 import os
+import socket
 import sys
 import urllib.request
 
 HUB_URL = os.environ.get("AGENT_HUB_URL", "http://127.0.0.1:8421")
 HUB_TOKEN = os.environ.get("AGENT_HUB_TOKEN", "")
 TIMEOUT = 5
+
+
+def machine_name() -> str:
+    return (os.environ.get("AGENT_HUB_MACHINE")
+            or socket.gethostname()
+            or "unknown")[:120]
 try:
     MAX_TURN_SUMMARY = max(0, int(os.environ.get("AGENT_HUB_TURN_SUMMARY_CHARS", "800")))
 except ValueError:
@@ -120,6 +127,7 @@ def main():
             "ext_id": ext_id,
             "agent": "codex",
             "project": os.path.basename(cwd) or "",
+            "machine": machine_name(),
             "cwd": cwd,
         },
         "events": [{"kind": "turn_end", "summary": summary}],

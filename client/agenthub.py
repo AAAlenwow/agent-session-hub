@@ -20,6 +20,7 @@ import json
 import os
 import pathlib
 import shutil
+import socket
 import sys
 import urllib.error
 import urllib.parse
@@ -30,6 +31,11 @@ import wb  # WorkBuddy 适配（同目录）
 
 HUB_URL = os.environ.get("AGENT_HUB_URL", "http://127.0.0.1:8421")
 HUB_TOKEN = os.environ.get("AGENT_HUB_TOKEN", "")
+
+
+def machine_name() -> str:
+    """上传机器标识：hostname 或 AGENT_HUB_MACHINE 自定义（如 "hechao 的 mac"）。"""
+    return (os.environ.get("AGENT_HUB_MACHINE") or socket.gethostname() or "unknown")[:120]
 
 
 def _req(path: str, method: str = "GET", data: bytes = None, headers: dict = None,
@@ -68,12 +74,13 @@ def cmd_list(args):
               "客户端 Claude Code 设 AGENT_HUB_UPLOAD_TRANSCRIPT=1，"
               "WorkBuddy 用 `agenthub wb-sync`。")
         return
-    print(f"{'id':>4}  {'owner':10} {'agent':11} {'in/out':>13} {'活跃':>6} {'形':2} "
-          f"{'ext_id':24} cwd")
+    print(f"{'id':>4}  {'owner':10} {'agent':11} {'machine':14} {'in/out':>13} "
+          f"{'活跃':>6} {'形':2} {'ext_id':24} cwd")
     for r in rows:
         tok = f"{_fmt_tokens(r['input_tokens'])}/{_fmt_tokens(r['output_tokens'])}"
         shape = "包" if r.get("bundle") else "行"
-        print(f"{r['id']:>4}  {r['owner']:10} {r['agent']:11} {tok:>13} "
+        print(f"{r['id']:>4}  {r['owner']:10} {r['agent']:11} "
+              f"{(r.get('machine') or '-')[:14]:14} {tok:>13} "
               f"{_fmt_seconds(r.get('active_seconds')):>6} {shape:2} "
               f"{r['ext_id'][:24]:24} {r['cwd']}")
 
@@ -284,7 +291,8 @@ def cmd_wb_sync(args):
         proj = (meta.get("cwd") or "").rstrip("/").rsplit("/", 1)[-1]
         qs = urllib.parse.urlencode({
             "agent": "workbuddy", "ext_id": r["id"],
-            "cwd": meta.get("cwd", ""), "project": proj, "message": message or "",
+            "cwd": meta.get("cwd", ""), "project": proj, "machine": machine_name(),
+            "message": message or "",
         })
         try:
             res = _json(f"/v1/transcripts?{qs}", method="POST", data=bundle,

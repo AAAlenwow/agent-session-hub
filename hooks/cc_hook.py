@@ -8,6 +8,7 @@
 """
 import json
 import os
+import socket
 import subprocess
 import sys
 import urllib.parse
@@ -24,6 +25,14 @@ try:
 except ValueError:
     MAX_TURN_SUMMARY = 800
 UPLOAD_TRANSCRIPT = os.environ.get("AGENT_HUB_UPLOAD_TRANSCRIPT", "0") == "1"
+
+
+def machine_name() -> str:
+    """上传机器标识：默认 hostname（如 hechaomac-mini），
+    AGENT_HUB_MACHINE 可覆盖成更好认的名字（如 "hechao 的 mac"、"香港服务器"）。"""
+    return (os.environ.get("AGENT_HUB_MACHINE")
+            or socket.gethostname()
+            or "unknown")[:120]
 # 只读 transcript 尾部这么多字节：回合末尾的 assistant 回答必然在文件最尾，
 # 没必要为一段摘要整读几 MB 的会话原件。
 TAIL_BYTES = 262144
@@ -210,6 +219,7 @@ def main():
             "ext_id": msg.get("session_id", "unknown"),
             "agent": agent,
             "project": os.path.basename(cwd) or "",
+            "machine": machine_name(),
             "cwd": cwd,
             "repo": os.environ.get("AGENT_HUB_REPO", ""),
         },

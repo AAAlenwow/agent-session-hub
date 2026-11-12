@@ -69,6 +69,7 @@ def search_team_memory(q: str, limit: int = 20) -> str:
     for r in rows:
         lines.append(
             f"[{r['ts']}] {r['owner']} @ {r['project']} ({r['agent']}) "
+            f"[{r.get('machine') or '未知机器'}] "
             f"#{r['session_id']} {r['kind']}: {r['summary']}"
         )
     return "\n".join(lines)
@@ -84,7 +85,8 @@ def recent_team_sessions(limit: int = 20) -> str:
     for r in rows:
         lines.append(
             f"[{r['updated_at']}] {r['owner']} @ {r['project']} "
-            f"({r['agent']}) #{r['id']} {r['event_count']} events"
+            f"({r['agent']}) [{r.get('machine') or '未知机器'}] "
+            f"#{r['id']} {r['event_count']} events"
         )
     return "\n".join(lines)
 
@@ -96,12 +98,26 @@ def get_team_session(session_id: int) -> str:
     s = data["session"]
     head = (
         f"#{s['id']} {s['owner']} @ {s['project']} ({s['agent']}) "
-        f"cwd={s['cwd']}"
+        f"machine={s.get('machine') or '未知'} cwd={s['cwd']}"
     )
     lines = [head]
     for e in data["events"]:
         lines.append(f"[{e['ts']}] {e['kind']}: {e['summary']}")
     return "\n".join(lines)
+
+
+@mcp.tool()
+def list_team_machines() -> str:
+    """列出团队会话来自哪些机器 / 服务器（机器名、会话数、涉及项目、最后活跃）。
+    用户问「这些会话是哪台机器上的」「某台服务器上在做什么」时先看这个。"""
+    rows = _get("/v1/machines")
+    if not rows:
+        return "还没有上报过机器信息。"
+    return "\n".join(
+        f"{r['machine']} — 会话 {r['session_count']} | 涉及 {r['owners']} 人 | "
+        f"最后活跃 {r['last_seen']} | 项目: {', '.join(r['projects'] or []) or '-'}"
+        for r in rows
+    )
 
 
 @mcp.tool()
