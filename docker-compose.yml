@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agenthub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: agenthub
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./server/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agenthub"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  hub:
+    build: ./server
+    environment:
+      DATABASE_URL: postgresql://agenthub:${POSTGRES_PASSWORD}@postgres:5432/agenthub
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?set in .env}
+    volumes:
+      # 部署配置外挂：改 hub-config.yaml 后 restart 即换一套提示词，无需重新 build
+      - ./server/hub-config.yaml:/app/hub-config.yaml:ro
+    ports:
+      # 局域网（10.17.x.x）与 tailscale（100.86.189.44）直连 8421；外网经 tailscale 访问
+      - "0.0.0.0:8421:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -1,0 +1,39 @@
+# agent-hub 部署配置 —— 修改后 docker compose restart hub 生效。
+#
+# 本文件决定 /v1/agent-prompt 生成什么样的「给 agent 看的使用说明」。
+# 关键设计：提示词由部署实例动态生成，改这里 = 换一套提示词。
+# 不同服务器（不同公司 / 不同保密等级）各自维护各自的这份文件。
+
+instance:
+  name: "XX 事业部 agent 记忆库"     # 会出现在提示词标题与正文中
+  url: https://mem.corp.local        # 本部署的对外地址
+
+privacy:
+  # auto    hooks 自动上报会话事件（内部互信高、要求全量沉淀的团队）
+  # curated 默认零上报，仅当用户让 agent 分享时才上报（推荐默认）
+  # strict  分享前必须把摘要展示给用户逐次确认（涉密团队）
+  mode: curated
+
+  share_prompt_content: true         # false 时提示词会要求 agent 不复述指令原文
+
+  # 入库前正则脱敏（Python re 语法），对 summary 与 title 生效
+  redaction:
+    - pattern: 'sk-[A-Za-z0-9_\-]{16,}'
+      replace: '[REDACTED-KEY]'
+    - pattern: '(?i)(password|passwd|secret|token)\s*[:=]\s*\S{8,}'
+      replace: '[REDACTED-CREDENTIAL]'
+
+retention_days: 180                  # 提示词会向 agent 声明保留期；实际清理需管理员定时任务
+
+# ---------- 原件层（v3）：原始会话 JSONL 归档，支持跨机 --resume ----------
+# 与事件层的关系：事件层负责检索/交接报告/低敏；原件层保存完整对话原文。
+transcripts:
+  enabled: false              # 默认关闭。开启后 hooks 会在回合结束上传原始 JSONL（含完整对话，体积大、敏感）
+  # 注意：原件层**按原文保存，不做脱敏**（上面的 redaction 只作用于事件层的 summary/title）。
+  #       这是有意的：脱敏会改坏工具输出，使 --resume 后的上下文与原始会话不一致。
+  #       代价是凭据一旦写进会话就原样入库，请据此决定是否开启，并在团队内明确告知。
+  max_mb: 32                  # 单份上限：既限制上传体积，也限制解压/打包体展开后的体积
+  keep_revisions: 20          # 每个会话保留多少个历史版本（可回滚的深度；每版存全量快照，注意磁盘）
+  allow_cross_user_pull: true # 允许他人把会话拉到本机回放（团队交接场景需要 true）
+  claim_ttl_hours: 24         # 回放占用锁有效期：避免两台机器同时 resume 同一会话
+  # 说明：原件层只在需要「接着聊」时才有价值；检索与交接报告走事件层，不依赖它。

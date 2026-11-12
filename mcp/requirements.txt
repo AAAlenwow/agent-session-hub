@@ -1,0 +1,5 @@
+# MCP 查询端的依赖（装在每个成员的机器上，不是服务器）
+#
+# 兼容范围：mcp 1.x（FastMCP）与 2.x（FastMCP 改名 MCPServer）都能跑，
+# mcp_query.py 内部做了兼容导入，所以这里不锁大版本。
+mcp[cli]>=1.2

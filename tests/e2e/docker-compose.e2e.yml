@@ -1,0 +1,19 @@
+# 全量场景测试用的编排覆盖文件，与 ../docker-compose.yml 叠加使用。
+#
+# 与生产配置的差别只有四处，都为了测试服务：
+#   1. 端口 8421 → 18421，避免撞上正在运行的正式实例
+#   2. 换一份 hub-config（原件层开启、max_mb 2、keep_revisions 3）
+#   3. 数据卷独立（compose project 名不同即可）
+#   4. 不加 restart，测完即拆
+services:
+  hub:
+    environment:
+      HUB_CONFIG: /app/hub-config.e2e.yaml
+    volumes:
+      - ./tests/e2e/hub-config.e2e.yaml:/app/hub-config.e2e.yaml:ro
+    ports: !override
+      - "127.0.0.1:18421:8000"
+    restart: "no"
+
+  postgres:
+    restart: "no"

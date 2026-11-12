@@ -1,0 +1,22 @@
+# 测试专用部署配置。刻意把阈值调小，让「超限 / 裁剪」这类场景能在几秒内跑完。
+instance:
+  name: "E2E 测试部署"
+  url: https://e2e.agenthub.local
+
+privacy:
+  mode: auto
+  share_prompt_content: true
+  redaction:
+    - pattern: 'sk-[A-Za-z0-9_\-]{16,}'
+      replace: '[REDACTED-KEY]'
+    - pattern: '(?i)(password|passwd|secret|token)\s*[:=]\s*\S{8,}'
+      replace: '[REDACTED-CREDENTIAL]'
+
+retention_days: 30
+
+transcripts:
+  enabled: true
+  max_mb: 2                   # 生产 32；测试调到 2MB，方便触发 413
+  keep_revisions: 3           # 生产 20；测试调到 3，方便验证历史裁剪
+  allow_cross_user_pull: true
+  claim_ttl_hours: 24
