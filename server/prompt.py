@@ -80,6 +80,11 @@ def build_prompt(cfg: dict) -> str:
     a(f"每条会话都记录了**上传机器**（hostname，或成员用 AGENT_HUB_MACHINE 起的"
       f"别名如「hechao 的 mac」「香港服务器」）。用户问「这是哪台机器上的活」时用"
       f" `list_team_machines()`。手机上可直接打开 {url}/m 查看（个人 token 登录，只读）。")
+    a("")
+    a("带 `team_` 前缀的事件来自 dsh-team 这类多智能体编排器的侧车记录"
+      "（`team_event` 任务流转 / `team_change` 文件改动与增删行 / `team_approval` 审批与批准人 / "
+      "`team_audit` before-after 哈希）。用户问「这个改动是谁批的」「团队上次跑到哪一步」"
+      "「哪个成员动了这个文件」时，搜这些事件比搜 turn_end 更准，并且能给出审计级的出处。")
     a("| `list_team_projects()` | 想知道团队有哪些项目、各自负责人是谁时 |")
     a("| `list_team_machines()` | 想知道会话来自哪些机器 / 服务器、哪台机器在做什么时 |")
     a("| `get_project_handover(project)` | 接手别人的项目时：一次拿到历任负责人、上一任的历史会话、"
