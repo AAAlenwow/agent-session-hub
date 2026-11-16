@@ -28,8 +28,8 @@ UPLOAD_TRANSCRIPT = os.environ.get("AGENT_HUB_UPLOAD_TRANSCRIPT", "0") == "1"
 
 
 def machine_name() -> str:
-    """上传机器标识：默认 hostname（如 hechaomac-mini），
-    AGENT_HUB_MACHINE 可覆盖成更好认的名字（如 "hechao 的 mac"、"香港服务器"）。"""
+    """上传机器标识：默认 hostname（如 alice-mac-mini），
+    AGENT_HUB_MACHINE 可覆盖成更好认的名字（如 "Alice 的 MacBook"、"build-01"）。"""
     return (os.environ.get("AGENT_HUB_MACHINE")
             or socket.gethostname()
             or "unknown")[:120]

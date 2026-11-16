@@ -27,7 +27,7 @@
 环境变量：
     AGENT_HUB_URL        默认 http://127.0.0.1:8421
     AGENT_HUB_TOKEN      必填，个人 token
-    AGENT_HUB_MACHINE    机器别名，默认 hostname（如 "hechao 的 mac"）
+    AGENT_HUB_MACHINE    机器别名，默认 hostname（如 "Alice 的 MacBook"）
     AGENT_HUB_TEAM_DB    默认 ~/.dsh/team/team.db
     AGENT_HUB_TEAM_WATERMARK  默认 ~/.dsh/team/.hub-bridge.json
 """

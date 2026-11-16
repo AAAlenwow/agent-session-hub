@@ -12,11 +12,11 @@ Claude Code 系（含 GLM / MiniMax / Kimi）用 cc_hook.py，Codex 用 codex_no
           "events":[{"kind":"turn_end","summary":"修好了限流"}]}' | generic_report.py
 
 2) 命令行参数（服务器 cron / 一次性上报）：
-   generic_report.py --session-id dsh-abc --agent dsh --project geeadmin \\
+   generic_report.py --session-id dsh-abc --agent dsh --project demo-shop \\
        --kind turn_end --summary "圣诞活动逻辑已改为满100送50"
 
 可选字段缺省：agent=dsh、project=当前目录名、machine=hostname
-（AGENT_HUB_MACHINE 可覆盖，例如 "香港服务器"）。
+（AGENT_HUB_MACHINE 可覆盖，例如 "build-01"）。
 未配置 token 时静默 exit 0；网络失败返回 1 并打印原因（可直接用于 cron 告警）。
 """
 import argparse

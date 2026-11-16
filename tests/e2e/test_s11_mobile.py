@@ -63,7 +63,7 @@ def test_mobile_login_sets_cookie_and_lists_machine(people):
     """登录后能看到「机器 → 会话」的列表，且机器名展示出来。"""
     p = people["carol"]
     proj, sid = uid("mob"), uid("sess")
-    machine = uid("hechao-mac")
+    machine = uid("alice-mac")
     assert _ingest(p["api"], sid, proj, machine).status == 200
 
     api = H.Api()

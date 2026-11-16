@@ -514,6 +514,6 @@ def session_slug(path: str) -> str:
 
 def workbuddy_slug(path: str) -> str:
     """WorkBuddy 的项目目录名：去掉开头的 '/'，再把 '/' 换成 '-'。
-    实测 '/Users/hechao/WorkBuddy/2026-11-12-09-54-37'
-       → 'Users-hechao-WorkBuddy-2026-11-12-09-54-37'（点号保留）"""
+    实测 '/Users/alice/WorkBuddy/2026-01-01-00-00-00'
+       → 'Users-alice-WorkBuddy-2026-01-01-00-00-00'（点号保留）"""
     return path.strip("/").replace("/", "-")

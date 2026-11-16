@@ -59,9 +59,9 @@ def test_machine_recorded_and_redacted(people):
     stored = H.sql(f"select machine from transcripts where id = {d['transcript_id']}")
     assert stored == "box01-[REDACTED-KEY]", stored
     # 正常机器名不受影响
-    d2 = up(p["api"], uid("cc"), raw, machine="hechao 的 mac").json()
+    d2 = up(p["api"], uid("cc"), raw, machine="Alice 的 MacBook").json()
     assert H.sql(
-        f"select machine from transcripts where id = {d2['transcript_id']}") == "hechao 的 mac"
+        f"select machine from transcripts where id = {d2['transcript_id']}") == "Alice 的 MacBook"
 
 
 def test_resubmit_identical_is_noop(people):

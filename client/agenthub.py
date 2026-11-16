@@ -34,7 +34,7 @@ HUB_TOKEN = os.environ.get("AGENT_HUB_TOKEN", "")
 
 
 def machine_name() -> str:
-    """上传机器标识：hostname 或 AGENT_HUB_MACHINE 自定义（如 "hechao 的 mac"）。"""
+    """上传机器标识：hostname 或 AGENT_HUB_MACHINE 自定义（如 "Alice 的 MacBook"）。"""
     return (os.environ.get("AGENT_HUB_MACHINE") or socket.gethostname() or "unknown")[:120]
 
 

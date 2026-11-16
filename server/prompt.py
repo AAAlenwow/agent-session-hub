@@ -78,7 +78,7 @@ def build_prompt(cfg: dict) -> str:
       "不够再让用户拉原件回放。")
     a("")
     a(f"每条会话都记录了**上传机器**（hostname，或成员用 AGENT_HUB_MACHINE 起的"
-      f"别名如「hechao 的 mac」「香港服务器」）。用户问「这是哪台机器上的活」时用"
+      f"别名如「Alice 的 MacBook」「build-01」）。用户问「这是哪台机器上的活」时用"
       f" `list_team_machines()`。手机上可直接打开 {url}/m 查看（个人 token 登录，只读）。")
     a("")
     a("带 `team_` 前缀的事件来自 dsh-team 这类多智能体编排器的侧车记录"

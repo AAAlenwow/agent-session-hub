@@ -29,8 +29,8 @@ def _load(name: str):
 def test_machine_name_env_override(monkeypatch):
     """默认 hostname；AGENT_HUB_MACHINE 可读性更好的别名优先。"""
     cc = _load("cc_hook.py")
-    monkeypatch.setenv("AGENT_HUB_MACHINE", "hechao 的 mac")
-    assert cc.machine_name() == "hechao 的 mac"
+    monkeypatch.setenv("AGENT_HUB_MACHINE", "Alice 的 MacBook")
+    assert cc.machine_name() == "Alice 的 MacBook"
     monkeypatch.delenv("AGENT_HUB_MACHINE")
     assert cc.machine_name()  # hostname 非空
     assert len(cc.machine_name()) <= 120
@@ -45,12 +45,12 @@ def test_generic_report_from_args():
     gr = _load("generic_report.py")
     ns = argparse.Namespace(
         session_id="dsh-abc", agent="dsh", project="", machine="",
-        cwd="/home/u/code/geeadmin", title="", kind="turn_end",
+        cwd="/home/u/code/demo-shop", title="", kind="turn_end",
         summary="修好了限流", file=["src/limit.py"], ts="",
     )
     body = gr.from_args(ns)
     assert body["session"]["ext_id"] == "dsh-abc"
-    assert body["session"]["project"] == "geeadmin"      # 从 cwd 目录名推
+    assert body["session"]["project"] == "demo-shop"      # 从 cwd 目录名推
     assert body["session"]["machine"]                         # hostname 兜底
     assert body["events"] == [{"kind": "turn_end", "summary": "修好了限流",
                                "files": ["src/limit.py"]}]
@@ -60,12 +60,12 @@ def test_generic_report_stdin_defaults():
     """stdin 模式：缺 machine 自动补；缺 agent 默认 dsh；events 为空要报错。"""
     gr = _load("generic_report.py")
     body = gr.from_stdin(json.dumps({
-        "session": {"ext_id": "dsh-1", "cwd": "/srv/app/geeadmin"},
+        "session": {"ext_id": "dsh-1", "cwd": "/srv/app/demo-shop"},
         "events": [{"kind": "turn_end", "summary": "ok"}],
     }))
     assert body["session"]["machine"]
     assert body["session"]["agent"] == "dsh"
-    assert body["session"]["project"] == "geeadmin"
+    assert body["session"]["project"] == "demo-shop"
 
     try:
         gr.from_stdin('{"session": {"ext_id": "x"}}')

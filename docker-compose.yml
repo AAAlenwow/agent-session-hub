@@ -23,7 +23,8 @@ services:
       # 部署配置外挂：改 hub-config.yaml 后 restart 即换一套提示词，无需重新 build
       - ./server/hub-config.yaml:/app/hub-config.yaml:ro
     ports:
-      # 局域网（10.17.x.x）与 tailscale（100.86.189.44）直连 8421；外网经 tailscale 访问
+      # 注意：默认监听所有网卡。生产环境建议只绑 127.0.0.1，前面挂 Caddy/Nginx 加 TLS；
+      # 需要异地访问就上 VPN / tailscale / 内网穿透，不要把 8421 直接暴露到公网。
       - "0.0.0.0:8421:8000"
     depends_on:
       postgres:

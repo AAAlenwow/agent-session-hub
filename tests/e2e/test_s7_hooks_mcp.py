@@ -213,7 +213,7 @@ GENERIC = ROOT / "hooks" / "generic_report.py"
 def test_generic_report_reports_machine_and_summary(people):
     """通用上报契约：dsh-go 这类插件不写 hook，直接调这个脚本即可接入。"""
     p = people["bob"]
-    sid, proj = uid("gen"), uid("geeadmin")
+    sid, proj = uid("gen"), uid("demo-shop")
     machine = uid("hk-server")
     payload = json.dumps({"session": {"ext_id": sid, "agent": "dsh",
                                       "project": proj, "machine": machine,

@@ -1,8 +1,23 @@
 # agent-hub
 
-团队级 agent 会话事件中枢。**不搬 session 文件**——代码和 `~/.claude`、`~/.codex` 都留在每个人本机；只把"谁、在哪个仓库、问了什么、改了哪些文件"以事件形式上报到内网服务器，存 Postgres，再通过 MCP 让任何 agent（Claude Code / Codex / GLM / MiniMax）都能查询团队记忆。
+**AI 编程 agent 的团队记忆中枢 —— 自建、事件优先、不集中存 session 文件。**
 
-自建、零订阅费、Apache 类内部使用，部署在自己公司服务器上。
+[English](README.en.md) · 协议：[Apache-2.0](LICENSE) · 免费开源，可商用
+
+团队级 agent 会话事件中枢。**不搬 session 文件**——代码和 `~/.claude`、`~/.codex` 都留在每个人本机；只把"谁、在哪个仓库、问了什么、改了哪些文件"以事件形式上报到内网服务器，存 Postgres，再通过 MCP 让任何 agent（Claude Code / Codex / GLM / MiniMax / WorkBuddy / DSH）都能查询团队记忆。
+
+自建、零订阅费，部署在自己公司服务器上；代码不改动原有权限模型。
+
+它回答的是这类问题：
+
+- 团队里谁动过限流？当时为什么从 100 调到 500？
+- 同事休假了，她做到哪、决定了什么、还差什么？
+- 这活是在哪台机器上干的？
+- 那次危险的文件写入是谁批的，到底改了哪些行？
+
+设计判断：**可复用的资产不是对话原文，而是「决定 + 它的来龙去脉」。**
+一句 60 字的回合结论，带人、仓库、文件清单、时间戳，能搜、能引用、几乎不占空间；
+一份 4MB 的 JSONL 在团队规模下三样都做不到。
 
 ## 服务器部署
 
@@ -330,7 +345,7 @@ pip install "mcp[cli]"    # 前置依赖
 每条会话都记录上传机器。默认取 `hostname`，建议每台机器设一个人类可读的别名：
 
 ```bash
-export AGENT_HUB_MACHINE="hechao 的 mac"     # 或 "香港服务器" / "测试机-03"
+export AGENT_HUB_MACHINE="Alice 的 MacBook"     # 或 "build-01" / "测试机-03"
 ```
 
 - `GET /v1/machines` 汇总：机器名、会话数、涉及人数、最后活跃、涉及项目
@@ -343,18 +358,18 @@ export AGENT_HUB_MACHINE="hechao 的 mac"     # 或 "香港服务器" / "测试�
 
 ```bash
 # 方式 1：插件里 spawn 一个子进程（最省事）
-echo '{"session":{"ext_id":"dsh-abc","agent":"dsh","project":"geeadmin"},
+echo '{"session":{"ext_id":"dsh-abc","agent":"dsh","project":"demo-shop"},
        "events":[{"kind":"turn_end","summary":"圣诞活动逻辑改成满100送50"}]}' \
   | python3 ~/.agent-hub/generic_report.py
 
 # 方式 2：命令行参数（cron / 一次性上报）
 python3 ~/.agent-hub/generic_report.py --session-id dsh-abc --agent dsh \
-  --project geeadmin --kind turn_end --summary "修好了限流"
+  --project demo-shop --kind turn_end --summary "修好了限流"
 ```
 
 DSH / dsh-go 的接法：在 DSH 插件里监听回合结束事件，把 `{ext_id, agent, project, machine}`
 和事件数组喂给上面的脚本即可；`AGENT_HUB_MACHINE` 设成手机或服务器的别名，
-这样手机端看到的就是「这条会话来自 iPhone / 香港服务器」。
+这样手机端看到的就是「这条会话来自 iPhone / build-01」。
 
 ### dsh-team 编排记录（审计链上行）
 
@@ -371,9 +386,9 @@ DSH / dsh-go 的接法：在 DSH 插件里监听回合结束事件，把 `{ext_i
 | `audit` | `team_audit` | before/after SHA-256，客户验收时的硬证据 |
 
 ```bash
-export AGENT_HUB_URL=http://10.17.0.113:8421
+export AGENT_HUB_URL=https://mem.example.com
 export AGENT_HUB_TOKEN=<个人 token>
-export AGENT_HUB_MACHINE="hechao 的 mac"
+export AGENT_HUB_MACHINE="Alice 的 MacBook"
 
 # 看一眼会推什么（不发送）
 python3 hooks/team_bridge.py --once --dry-run --verbose
@@ -393,8 +408,8 @@ python3 hooks/team_bridge.py --watch --interval 30
 crontab 示例：
 
 ```cron
-*/1 * * * * AGENT_HUB_URL=http://10.17.0.113:8421 AGENT_HUB_TOKEN=xxx \
-  AGENT_HUB_MACHINE="hechao 的 mac" python3 ~/agent-hub/hooks/team_bridge.py --once
+*/1 * * * * AGENT_HUB_URL=https://mem.example.com AGENT_HUB_TOKEN=xxx \
+  AGENT_HUB_MACHINE="Alice 的 MacBook" python3 ~/agent-hub/hooks/team_bridge.py --once
 ```
 
 ### 手机访问（不装 App）
@@ -436,11 +451,11 @@ WorkBuddy 打包体往返、hook 与 MCP（含 stdio 协议）、CLI 全部子�
 
 ## 路线图
 
-| 阶段 | 内容 | 工作量 |
-|---|---|---|
-| Phase 1（本骨架） | 事件上报 + Postgres 存储 + 检索 API + MCP 查询 | 3–5 天打磨到可用 |
-| Phase 2 | Codex 细粒度事件（tail 监听 rollout 文件）；服务端用 MiniMax 生成回合摘要（`turn_end` → 一段结论）；正则脱敏（token/key 模式入库前清洗） | 1 周 |
-| Phase 3（可选） | 轻量 Web UI（时间线浏览）；"工作实况"直播（谁在改哪个文件，Tutti 式）；zhparser 中文分词或向量检索 | 1–2 周 |
+| 状态 | 内容 |
+|---|---|
+| ✅ 已完成 | 事件上报 + Postgres 存储 + 检索 API + MCP 查询；Codex notify 细粒度事件；入库前正则脱敏；turn_end 思维链摘要；机器溯源；通用上报契约（`generic_report.py`）；手机只读端 `/m`；dsh-team 审批/审计链上行 |
+| 🚧 下一步 | 手机端团队任务看板与审批（唯一计划给 `/m` 加写操作，需单独设计权限）；DSH 内置挂载 MCP（建队前自动 `search_team_memory` / `get_project_handover`） |
+| 💡 可选 | 服务端 LLM 生成回合摘要（替代 hook 尾部截取）；zhparser 中文分词或向量检索；"工作实况"直播（谁在改哪个文件）；按人/项目的保留期策略 |
 
 ## 已知边界
 
@@ -454,3 +469,34 @@ WorkBuddy 打包体往返、hook 与 MCP（含 stdio 协议）、CLI 全部子�
   且写死列名会因版本升级而失败 —— 所以实现里按原机快照动态取列，多/少列都不会炸；但**升级 WorkBuddy 大版本后建议先 `--dry-run` 跑一遍**。
 - **WorkBuddy 的 token 统计口径**：`input_tokens` 含缓存命中部分（每次请求都把整段 prompt 重发），
   `cache_read_tokens` 是其中的命中量，算钱时别把两者相加。这是与 Claude Code（二者互斥）不同的地方。
+
+## 与已有项目的区别（先说清楚，不吹唯一）
+
+这个赛道不空，这是好事。选型前值得一起看：
+
+- [`vshulcz/deja-vu`](https://github.com/vshulcz/deja-vu)（Go，★1.5k）——单二进制、**本机**记忆、
+  跨 46 种 agent 的会话检索与 handoff。想要「单机记忆」它更合适。
+- [`ConfabulousDev/confab-web`](https://github.com/ConfabulousDev/confab-web)——自托管会话管理平台，
+  带分析、AI 回顾、分享与团队功能。形态最接近。
+- [`teamhub-mcp`](https://www.npmjs.com/package/teamhub-mcp)——**git 原生**的团队共享上下文，
+  `.hub/` 里放 JSON 跟代码一起提交。无服务器、无数据库，适合单仓小团队。
+- [`iintuziasty-web/team-room`](https://github.com/iintuziasty-web/team-room) /
+  [`abnegate/magents`](https://github.com/abnegate/magents)——自托管共享工作区 / 会话总线。
+
+`agent-hub` 只在四点上有区别，其他地方可能不如上面几个：
+
+1. **一等公民是事件，不是 transcript**——按「项目 / 负责人 / 机器 / 文件 / 工具 / 时间」这种
+   溯源结构检索，而不是对整段聊天做全文搜索。
+2. **不开原件层也能留住结论**——turn_end 摘要独立于原始对话存在。
+3. **交接是一等输出**——负责人时间线 + 热点文件统计，而不是「你去翻我的聊天记录」。
+4. **编排审批与审计哈希**和代码改动在同一个检索空间里（谁批的、改了哪些行、前后 SHA-256）。
+
+它**不打算**做多 agent 运行时、不做 UI 产品、也不做纯本地记忆。
+如果你要的是零部署的本机回忆，`deja-vu` 比它更合适。
+
+## 协议
+
+[Apache License 2.0](LICENSE)，附 [NOTICE](NOTICE)。免费用于个人与商业场景，可修改、可分叉、
+可闭源分发衍生作品；不提供任何担保。使用时保留版权与许可声明即可。
+
+英文说明见 [README.en.md](README.en.md)。

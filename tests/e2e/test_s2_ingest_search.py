@@ -174,7 +174,7 @@ def test_machine_is_recorded_and_queryable(people):
     """机器溯源：会话从哪台机器传上来的，必须能查、能按机器过滤、能汇总。"""
     api = people["alice"]["api"]
     proj, sid = uid("mch"), uid("sess")
-    m = uid("hechao-mac")
+    m = uid("alice-mac")
     body = {"session": {"ext_id": sid, "agent": "claude-code", "project": proj,
                         "machine": m, "cwd": "/home/u/" + proj},
             "events": [{"kind": "turn_end", "summary": "改了圣诞活动"}]}

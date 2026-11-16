@@ -51,7 +51,7 @@ def teamdb(tmp_path):
     path = tmp_path / "team.db"
     con = sqlite3.connect(path)
     con.executescript(DDL)
-    con.execute("insert into team values ('t1', 'geeadmin-圣诞活动')")
+    con.execute("insert into team values ('t1', 'demo-shop-圣诞活动')")
     con.execute("insert into member values ('m_dev', 't1', 'dev', '实现成员')")
     con.execute("insert into member values ('m_rev', 't1', 'reviewer', '审查成员')")
     con.executemany(
@@ -83,7 +83,7 @@ def test_first_run_collects_all_four_sources(teamdb, tmp_path, monkeypatch):
     mod = load_module(monkeypatch, tmp_path, teamdb)
     db = mod.connect(teamdb)
     teams = mod.fetch_teams(db)
-    assert teams == [("t1", "geeadmin-圣诞活动")]
+    assert teams == [("t1", "demo-shop-圣诞活动")]
     body, cursor = mod.build_batch(db, teams[0], {})
     db.close()
 
@@ -101,20 +101,20 @@ def test_session_identity_is_stable(teamdb, tmp_path, monkeypatch):
     """ext_id 必须由 team_id 派生：换机重跑要落到同一条会话上。"""
     mod = load_module(monkeypatch, tmp_path, teamdb)
     db = mod.connect(teamdb)
-    body, _ = mod.build_batch(db, ("t1", "geeadmin-圣诞活动"), {})
+    body, _ = mod.build_batch(db, ("t1", "demo-shop-圣诞活动"), {})
     db.close()
     s = body["session"]
     assert s["ext_id"] == "team:t1"
     assert s["agent"] == "dsh-team"
     assert s["machine"] == "unit-test-mac"
-    assert s["project"] == "geeadmin-圣诞活动"
+    assert s["project"] == "demo-shop-圣诞活动"
 
 
 def test_watermark_prevents_duplicate_push(teamdb, tmp_path, monkeypatch):
     mod = load_module(monkeypatch, tmp_path, teamdb)
     db = mod.connect(teamdb)
-    _, cursor = mod.build_batch(db, ("t1", "geeadmin-圣诞活动"), {})
-    body2, cursor2 = mod.build_batch(db, ("t1", "geeadmin-圣诞活动"), {"t1": cursor})
+    _, cursor = mod.build_batch(db, ("t1", "demo-shop-圣诞活动"), {})
+    body2, cursor2 = mod.build_batch(db, ("t1", "demo-shop-圣诞活动"), {"t1": cursor})
     db.close()
     assert body2["events"] == [], "第二次必须没有新事件"
     assert cursor2["event_id"] == cursor["event_id"]
@@ -124,7 +124,7 @@ def test_watermark_prevents_duplicate_push(teamdb, tmp_path, monkeypatch):
 def test_only_new_rows_are_pushed(teamdb, tmp_path, monkeypatch):
     mod = load_module(monkeypatch, tmp_path, teamdb)
     db = mod.connect(teamdb)
-    _, cursor = mod.build_batch(db, ("t1", "geeadmin-圣诞活动"), {})
+    _, cursor = mod.build_batch(db, ("t1", "demo-shop-圣诞活动"), {})
     db.close()
 
     writer = sqlite3.connect(teamdb)          # sidecar 侧写入，桥接器只读
@@ -135,7 +135,7 @@ def test_only_new_rows_are_pushed(teamdb, tmp_path, monkeypatch):
     writer.close()
 
     db = mod.connect(teamdb)
-    body, _ = mod.build_batch(db, ("t1", "geeadmin-圣诞活动"), {"t1": cursor})
+    body, _ = mod.build_batch(db, ("t1", "demo-shop-圣诞活动"), {"t1": cursor})
     db.close()
     assert len(body["events"]) == 1
     assert "独立审查通过" in body["events"][0]["summary"]

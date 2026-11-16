@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
     await app.state.pool.close()
 
 
-app = FastAPI(title="agent-hub", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="agent-hub", version="0.5.0", lifespan=lifespan)
 app.state.config = HUB_CONFIG          # 供原件层路由读取部署策略
 app.include_router(transcripts_router)
 app.include_router(mobile_router)
