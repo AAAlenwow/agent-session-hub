@@ -22,6 +22,9 @@
 ## 服务器部署
 
 ```bash
+# 0) 取代码
+git clone https://github.com/AAAlenwow/agent-hub.git && cd agent-hub
+
 # 1) 准备
 cp .env.example .env && chmod 600 .env    # 填 POSTGRES_PASSWORD / ADMIN_TOKEN
 
