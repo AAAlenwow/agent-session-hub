@@ -356,6 +356,47 @@ DSH / dsh-go 的接法：在 DSH 插件里监听回合结束事件，把 `{ext_i
 和事件数组喂给上面的脚本即可；`AGENT_HUB_MACHINE` 设成手机或服务器的别名，
 这样手机端看到的就是「这条会话来自 iPhone / 香港服务器」。
 
+### dsh-team 编排记录（审计链上行）
+
+`hooks/team_bridge.py` 把 dsh-team 的 sidecar 记录（`~/.dsh/team/team.db`）转成 hub 事件。
+它只在**这台机器**上跑，只读打开数据库，不和 sidecar 抢锁。
+
+它转四类东西：
+
+| 来源表 | 事件 kind | 内容 |
+|---|---|---|
+| `event` | `team_event` | 任务流转、成员动作（`task.done` / `agent.idle` …） |
+| `member_change` | `team_change` | 谁改了哪个文件、增删多少行（files 字段可用于检索） |
+| `approval` | `team_approval` | 谁在什么工具上被卡、谁批的、结果 |
+| `audit` | `team_audit` | before/after SHA-256，客户验收时的硬证据 |
+
+```bash
+export AGENT_HUB_URL=http://10.17.0.113:8421
+export AGENT_HUB_TOKEN=<个人 token>
+export AGENT_HUB_MACHINE="hechao 的 mac"
+
+# 看一眼会推什么（不发送）
+python3 hooks/team_bridge.py --once --dry-run --verbose
+
+# 推一次（cron 每 30 秒最合适）
+python3 hooks/team_bridge.py --once
+
+# 或者前台常驻
+python3 hooks/team_bridge.py --watch --interval 30
+```
+
+- **幂等**：水位存在 `~/.dsh/team/.hub-bridge.json`，重复跑不会重复推
+- **静默失败**：hub 挂了 / token 错，一律 exit 0，不会把 cron 日志刷满（`--verbose` 看原因）
+- 落到 hub 的会话是 `team:<team_id>`，`agent=dsh-team`，因此手机端 `/m` 和 MCP 搜索都能看到
+  「谁、在哪台机器、改了哪个文件、谁批的」
+
+crontab 示例：
+
+```cron
+*/1 * * * * AGENT_HUB_URL=http://10.17.0.113:8421 AGENT_HUB_TOKEN=xxx \
+  AGENT_HUB_MACHINE="hechao 的 mac" python3 ~/agent-hub/hooks/team_bridge.py --once
+```
+
 ### 手机访问（不装 App）
 
 手机浏览器直接打开（个人 token 登录，30 天有效，只读）：

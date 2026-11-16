@@ -4,6 +4,7 @@
 """
 import gzip
 import json
+import urllib.error
 import urllib.parse
 import uuid
 
@@ -242,9 +243,19 @@ def test_validation_errors(people):
 
 
 def test_upload_size_limits(people):
+    """超限拒绝。
+
+    服务端读到 Content-Length 就回 413 且不再读 body（transcripts_api.py:57），
+    此时客户端往往还在写那 3MB，可能先收到 broken pipe / reset —— 两种结局在语义
+    上都等于"被拒"，只是 TCP 时序不同（曾因此出现偶发失败，2026-11-16 修）。
+    """
     api = people["alice"]["api"]
     big = b'{"x":"' + b"A" * (3 * 1024 * 1024) + b'"}\n'
-    assert up(api, uid("big"), big).status == 413
+    try:
+        assert up(api, uid("big"), big).status == 413
+    except urllib.error.URLError as exc:
+        msg = str(exc).lower()
+        assert "broken pipe" in msg or "reset" in msg, f"非预期失败：{exc}"
 
 
 def test_gzip_bomb_is_rejected(people):

@@ -10,7 +10,7 @@ import json
 import os
 import secrets
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import asyncpg
@@ -61,7 +61,7 @@ def sha256_legacy(s: str) -> str:      # 兼容旧引用（实际使用 auth.sha
 # ---------- 模型 ----------
 
 class EventIn(BaseModel):
-    ts: Optional[str] = None          # ISO 时间，缺省用服务器时间
+    ts: Optional[datetime] = None     # ISO 时间，缺省用服务器时间
     kind: str = Field(..., description="user_prompt / tool_call / turn_end / ...")
     summary: str = ""
     files: list[str] = []
@@ -72,17 +72,26 @@ class EventIn(BaseModel):
     def _no_nul(cls, v):
         return strip_nul(v)
 
-    @field_validator("ts")
+    @field_validator("ts", mode="before")
     @classmethod
     def _valid_ts(cls, v):
-        """非法时间戳在入库前就挡掉：否则 asyncpg 抛 DataError，接口变成 500。"""
+        """必须归一成 datetime 再交给 asyncpg。
+
+        历史缺陷（2026-11-16 修）：这里原先把字符串原样返回，asyncpg 在**客户端
+        编码阶段**就拒绝 str（SQL 里的 `$2::timestamptz` cast 救不了），于是任何
+        带 ts 的上报都变成 500。hooks 从不传 ts（用服务器时间）所以一直没暴露，
+        第三方上报器（如 team_bridge）一带时间戳就炸。
+        naive 时间按 UTC 解释：跨机场景下本机时区不可知，宁可显式约定。
+        """
         if v in (None, ""):
             return None
+        if isinstance(v, datetime):
+            return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
         try:
-            datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(str(v).strip().replace("Z", "+00:00"))
         except ValueError:
             raise ValueError("ts 必须是 ISO 8601 时间（如 2026-11-12T10:00:00Z）")
-        return v
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 class SessionIn(BaseModel):

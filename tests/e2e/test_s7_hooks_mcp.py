@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.parse
 
 import pytest
 
@@ -366,3 +367,97 @@ def test_mcp_share_then_search_roundtrip(people):
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
+
+
+# ── team_bridge：dsh-team 的审计链上行到 hub ────────────────────────────────
+
+TEAM_BRIDGE = ROOT / "hooks" / "team_bridge.py"
+
+TEAM_DDL = """
+create table team (id text primary key, name text);
+create table member (id text primary key, team_id text, name text, role text);
+create table event (id integer primary key autoincrement, team_id text not null,
+  member_id text not null, task_id text, seq integer not null, ts text not null,
+  phase text not null, action text not null, target text, result text, next text,
+  meta_json text not null default '{}', unique(member_id, seq));
+create table member_change (id text primary key, team_id text not null, task_id text,
+  member_id text, path text not null, kind text not null default 'edit',
+  diff text not null default '', added integer, deleted integer, created_at text not null);
+create table approval (id text primary key, team_id text not null, member_id text,
+  session_id text, tool_name text not null default '', reason text,
+  status text not null default 'pending', decided_by text, decided_at text,
+  created_at text not null, updated_at text not null);
+create table audit (id integer primary key autoincrement, ts text not null, team_id text not null,
+  actor text not null, domain text not null, action text not null, target text not null,
+  before_hash text, after_hash text, result text not null default 'OK', detail_json text);
+"""
+
+
+def _make_team_db(path, team_id, proj, marker):
+    import sqlite3
+    con = sqlite3.connect(path)
+    con.executescript(TEAM_DDL)
+    con.execute("insert into team values (?,?)", (team_id, proj))
+    con.execute("insert into member values ('m1', ?, 'dev', '实现成员')", (team_id,))
+    con.execute(
+        "insert into event (team_id, member_id, task_id, seq, ts, phase, action, target, result)"
+        " values (?,?,?,?,?,?,?,?,?)",
+        (team_id, "m1", "t1", 1, "2026-11-16T08:00:00.000Z", "done", "task.done", marker, "OK"))
+    con.execute("insert into member_change values ('c1',?,'t1','m1','gift.py','edit','',18,0,"
+                "'2026-11-16T08:00:01.000Z')", (team_id,))
+    con.commit()
+    con.close()
+
+
+def test_team_bridge_lands_audit_chain_on_hub(people, tmp_path):
+    """dsh-team 的任务/改动/审批记录推到 hub，换机后能搜到（这是 P1 上行）。"""
+    p = people["alice"]
+    team_id, proj, marker = uid("team"), uid("teamproj"), uid("圣诞活动满100送50")
+    db = tmp_path / "team.db"
+    _make_team_db(db, team_id, proj, marker)
+
+    env = dict(os.environ)
+    env.update({
+        "AGENT_HUB_URL": H.BASE_URL, "AGENT_HUB_TOKEN": p["token"],
+        "AGENT_HUB_TEAM_DB": str(db),
+        "AGENT_HUB_TEAM_WATERMARK": str(tmp_path / "wm.json"),
+        "AGENT_HUB_MACHINE": "e2e-mac",
+    })
+    r = subprocess.run([sys.executable, str(TEAM_BRIDGE), "--once", "--verbose"],
+                       env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+
+    row = H.sql(f"select ext_id, agent, machine, project from sessions "
+                f"where ext_id = 'team:{team_id}'")
+    assert f"team:{team_id}" in row and "dsh-team" in row
+    assert "e2e-mac" in row and proj in row
+
+    hits = p["api"].get("/v1/search?q=" + urllib.parse.quote(marker)).json()
+    assert any(h["agent"] == "dsh-team" for h in hits), hits
+
+    changes = H.sql(f"select summary from events e join sessions s on s.id = e.session_id "
+                    f"where s.ext_id = 'team:{team_id}' and e.kind = 'team_change'")
+    assert "gift.py" in changes and "+18/-0" in changes
+
+
+def test_team_bridge_is_idempotent(people, tmp_path):
+    """水位生效：重复跑不会把同一批事件灌两遍。"""
+    p = people["alice"]
+    team_id, proj, marker = uid("team2"), uid("teamproj2"), uid("幂等标记")
+    db = tmp_path / "team.db"
+    _make_team_db(db, team_id, proj, marker)
+    env = dict(os.environ)
+    env.update({
+        "AGENT_HUB_URL": H.BASE_URL, "AGENT_HUB_TOKEN": p["token"],
+        "AGENT_HUB_TEAM_DB": str(db),
+        "AGENT_HUB_TEAM_WATERMARK": str(tmp_path / "wm.json"),
+        "AGENT_HUB_MACHINE": "e2e-mac",
+    })
+    cmd = [sys.executable, str(TEAM_BRIDGE), "--once"]
+    assert subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60).returncode == 0
+    first = H.sql(f"select count(*) from events e join sessions s on s.id = e.session_id "
+                  f"where s.ext_id = 'team:{team_id}'")
+    assert subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60).returncode == 0
+    second = H.sql(f"select count(*) from events e join sessions s on s.id = e.session_id "
+                   f"where s.ext_id = 'team:{team_id}'")
+    assert first == second, f"{first} -> {second}：重复推送了"

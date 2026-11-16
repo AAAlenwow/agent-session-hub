@@ -140,6 +140,29 @@ def test_unknown_session_id_is_404(people):
     assert people["alice"]["api"].get("/v1/sessions/99999999").status == 404
 
 
+def test_event_ts_is_accepted_and_stored(people):
+    """2026-11-16 修的 500 回归：ts 声明为 str 直传 asyncpg 会崩，
+    第三方上报器（team_bridge / dsh-go / cron 脚本）都带时间戳。"""
+    api, proj, sid = people["alice"]["api"], uid("tsproj"), uid("tssess")
+    r = post_events(api, sid, proj, events=[
+        {"kind": "team_event", "summary": "第一件事", "ts": "2026-11-16T06:07:44.969Z"},
+        {"kind": "team_event", "summary": "第二件事", "ts": "2026-11-16T14:07:45+08:00"},
+    ])
+    assert r.status == 200, r.text
+    detail = api.get(f"/v1/sessions/{r.json()['session_id']}").json()
+    evs = [e for e in detail["events"] if e["kind"] == "team_event"]
+    assert [e["summary"] for e in evs] == ["第一件事", "第二件事"]
+    assert evs[0]["ts"].startswith("2026-11-16T06:07:44")
+    assert evs[1]["ts"].startswith("2026-11-16T06:07:45")
+
+
+def test_bad_ts_is_422_not_500(people):
+    api, proj = people["alice"]["api"], uid("tsbad")
+    r = post_events(api, uid("badsess"), proj,
+                    events=[{"kind": "x", "summary": "y", "ts": "昨天下午"}])
+    assert r.status == 422
+
+
 def test_agent_name_is_recorded(people):
     """GLM / MiniMax 走同一套 hook，靠 agent 字段区分。"""
     api, proj, sid = people["alice"]["api"], uid("svc"), uid("sess")
