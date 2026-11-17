@@ -43,6 +43,8 @@ PYTHON=/path/to/python-with-pytest tests/e2e/run_e2e.sh run
 | `test_s8_client_cli.py` | `list`/`usage`/`pull`/`wb-sync`/`wb-pull`/`wb-hist`/`wb-diff`/`wb-revert` 全命令；**未确认时绝不静默上传** |
 | `test_s9_concurrency.py` | 24 并发上报、4 人抢同一会话占用锁、并发下载、并发同内容上传只产生一个版本、上报延迟 p95 |
 | `test_s10_migrations.py` | v1 → 002 → 003 → 004 → 005 升级路径与全新安装**逐列对比**、005 为存量数据补 r1 基线、迁移可重跑 |
+| `test_s11_mobile.py` | `/m` 登录（token→HttpOnly cookie）、机器分组、时间线取最新 N 条、跨机搜索、退出 |
+| `test_s12_lease.py` | 会话执行权：申请 / 409 带持有者信息 / 重复申请＝续租 / **generation 栅栏** / 释放后换代 / 原子交接 / 过期接管 / 归属人 force 夺回 / 非归属人不能抢 / 上传时栅栏告警 |
 
 ## 已知标记
 

@@ -160,7 +160,7 @@ async def mobile_home(request: Request, q: str = "", machine: str = ""):
         return page("搜索 " + q, body)
 
     sess_rows = await pool.fetch(
-        """select s.id, s.project, s.machine, s.agent, s.updated_at, s.title,
+        """select s.id, s.ext_id, s.project, s.machine, s.agent, s.updated_at, s.title,
                   u.name as owner,
                   (select count(*) from events e where e.session_id = s.id) as n,
                   (select e.summary from events e where e.session_id = s.id
@@ -168,16 +168,32 @@ async def mobile_home(request: Request, q: str = "", machine: str = ""):
            from sessions s join users u on u.id = s.user_id
            where ($1 = '' or coalesce(nullif(s.machine,''),'(未上报)') = $1)
            order by s.updated_at desc limit 60""", machine)
+    lease_rows = await pool.fetch(
+        "select l.session_key, l.machine as lmachine, l.generation, "
+        "       extract(epoch from (l.expires_at - now()))::int as left_s, u.name as holder "
+        "from session_leases l join users u on u.id = l.user_id "
+        "where l.expires_at > now()")
+    lease_map = {r["session_key"]: r for r in lease_rows}
     mchips = "".join(
         f"<a class=chip href='/m?machine={urllib.parse.quote(r['m'])}'"
         f" style='padding:5px 10px;font-size:12.5px'>{esc(r['m'])} · {r['n']}</a> "
         for r in machines)
+    def _lease_chip(r) -> str:
+        """会话卡片上的「正在跑」标记：手机上一眼看出这条会话有没有人在动。"""
+        l = lease_map.get(r["agent"] + ":" + (r["ext_id"] or ""))
+        if not l:
+            return ""
+        return (f"<div class=sub><span class=chip "
+                f"style='border-color:#3fb950;color:#3fb950'>▶ 正在跑 · "
+                f"{esc(l['holder'])} · 剩 {l['left_s'] // 60}m</span></div>")
+
     cards = "".join(
         f"<a class=card href='/m/s/{r['id']}'>"
         f"<div class=row><span>{esc(r['project'] or '(无项目)')}</span>"
         f"<span class=t>{esc(_fmt_ts(r['updated_at']))}</span></div>"
         f"<div class=sub><span class=chip>{esc(r['machine'] or '未知机器')}</span>"
         f"<span class=chip>{esc(r['agent'])}</span>{esc(r['owner'])} · {r['n']} 条事件</div>"
+        + _lease_chip(r)
         + (f"<div class=sub>最近：{esc(r['last_turn'])[:160]}</div>" if r["last_turn"] else "")
         + "</a>"
         for r in sess_rows) or "<div class=empty>这台机器还没有会话。</div>"
@@ -211,6 +227,20 @@ async def mobile_session(request: Request, sid: int):
     evs = list(reversed(evs))
     total = await pool.fetchval(
         "select count(*) from events where session_id = $1", sid)
+    lease = await pool.fetchrow(
+        "select l.generation, l.machine as lmachine, "
+        "       extract(epoch from (l.expires_at - now()))::int as left_s, "
+        "       (l.expires_at > now()) as active, u.name as holder "
+        "from session_leases l join users u on u.id = l.user_id "
+        "where l.session_key = $1", f"{s['agent']}:{s['ext_id']}")
+    banner = ""
+    if lease and lease["active"]:
+        banner = (
+            f"<div class=card style='border-color:#3fb950'>"
+            f"<div>▶ <b>{esc(lease['holder'])}</b> 正在执行这条会话</div>"
+            f"<div class=sub>{esc(lease['lmachine'] or '未知机器')} · "
+            f"generation {lease['generation']} · 剩 {lease['left_s'] // 60} 分钟</div>"
+            f"<div class=sub>另一台机器此时不要同时 resume 或同步，否则上下文会互相覆盖。</div></div>")
     items = "".join(
         f"<div class=ev><div><span class=k>{esc(e['kind'])}</span>"
         f"<span class=t>{esc(_fmt_ts(e['ts']))}</span></div>"
@@ -223,6 +253,7 @@ async def mobile_session(request: Request, sid: int):
 <span class=chip>{esc(s['agent'])}</span>{esc(s['owner'])}</div>
 <div class=sub>cwd: {esc(s['cwd'])}</div>
 <div class=sub>更新: {esc(_fmt_ts(s['updated_at']))} · 最新 {len(evs)}/{total} 条事件</div>
+{banner}
 <h2>时间线</h2>{items}"""
     return page(s["project"] or "会话", body)
 

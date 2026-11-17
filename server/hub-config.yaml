@@ -37,3 +37,15 @@ transcripts:
   allow_cross_user_pull: true # 允许他人把会话拉到本机回放（团队交接场景需要 true）
   claim_ttl_hours: 24         # 回放占用锁有效期：避免两台机器同时 resume 同一会话
   # 说明：原件层只在需要「接着聊」时才有价值；检索与交接报告走事件层，不依赖它。
+
+# ---------- 会话执行权租约（v0.6）：谁现在「正在跑」这条会话 ----------
+# 与原件层的 claim 分工：claim=装一份来回放，lease=执行权+fencing。
+# 不开也不会坏：没有租约记录就是「没人在跑」，行为与 v0.5 完全一致。
+lease:
+  ttl_seconds: 3600           # 默认租约时长；长任务靠 renew 续，不靠调大这里
+  max_ttl_seconds: 86400      # 单次申请的上限，防止有人一次占一天
+  # 上传/回滚时的栅栏校验：
+  #   off    完全不检查
+  #   warn   带 lease_generation 且不匹配时只在响应头告警（默认，向后兼容）
+  #   strict 该会话有 active exec 租约时，不带/带错 generation 一律 409
+  fencing: warn

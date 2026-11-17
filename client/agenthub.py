@@ -471,6 +471,157 @@ def cmd_wb_pull(args):
                dry_run=args.dry_run, from_cwd=args.from_cwd)
 
 
+def _holder_id() -> str:
+    """租约持有者标识：默认「机器名:pid」，同一台机器上多个 agent 进程也能区分。"""
+    return f"{machine_name()}:{os.getpid()}"
+
+
+def _lease_call(path: str, method: str = "GET", payload: dict = None):
+    """调租约 API。409/403 的 detail 是结构化的，这里翻成人话，不抛栈。"""
+    data = None
+    headers = None
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode()
+        headers = {"Content-Type": "application/json"}
+    try:
+        body, _ = _req(path, method=method, data=data, headers=headers, timeout=30)
+        return json.loads(body.decode()), None
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", "replace")
+        try:
+            detail = json.loads(raw).get("detail", raw)
+        except Exception:
+            detail = raw
+        return None, (e.code, detail)
+
+
+def _lease_left(sec: int) -> str:
+    hours, mins = divmod(max(0, int(sec)) // 60, 60)
+    return f"{hours}h{mins:02d}m" if hours else f"{mins}m"
+
+
+def _print_lease_table(rows: list, show_expired: bool = False):
+    if not rows:
+        print("当前没有活跃租约：没有人正在执行任何会话。")
+        return
+    print(f"{'SESSION':<30} {'HOLDER':<26} {'MACHINE':<20} {'GEN':>4}  LEFT   BY")
+    for r in rows:
+        print(f"{r['session_key']:<30} {r['holder_id']:<26} "
+              f"{(r.get('machine') or '-'):<20} {r['generation']:>4}  "
+              f"{_lease_left(r.get('ttl_left_seconds', 0)):<6} {r.get('holder','')}")
+
+
+def _print_lease_one(r: dict):
+    print(f"  会话        {r['session_key']}")
+    print(f"  持有者      {r.get('holder_id')}（{r.get('holder','')}）")
+    print(f"  机器        {r.get('machine') or '-'}")
+    print(f"  模式        {r.get('mode')}")
+    print(f"  generation  {r['generation']}")
+    print(f"  到期        {r.get('expires_at','')}（剩 {_lease_left(r.get('ttl_left_seconds',0))}）")
+    if r.get("note"):
+        print(f"  备注        {r['note']}")
+
+
+def cmd_lease(args):
+    """会话执行权租约。status/acquire/renew/release/transfer，见 docs/SESSION_LEASE.md。"""
+    action, sess = args.action, (args.session or "")
+    key_path = urllib.parse.quote(sess, safe="")
+
+    if action == "status":
+        if sess:
+            res, err = _lease_call(f"/v1/leases/{key_path}")
+            if err:
+                code, detail = err
+                if code == 404:
+                    print("该会话没有租约记录（= 没人在跑）。")
+                    return
+                sys.exit(f"查询失败（{code}）：{detail}")
+            print("租约：")
+            _print_lease_one(res)
+            print(f"  状态        {'活跃' if res.get('active') else '已过期'}")
+            return
+        res, err = _lease_call("/v1/leases?active_only=" + ("false" if args.all else "true"))
+        if err:
+            sys.exit(f"查询失败（{err[0]}）：{err[1]}")
+        _print_lease_table(res.get("leases", []))
+
+    elif action == "acquire":
+        if not sess:
+            sys.exit("用法：agenthub lease acquire <transcript-id 或 agent:ext_id>")
+        payload = {
+            "holder_id": args.holder or _holder_id(),
+            "machine": machine_name(),
+            "mode": args.mode,
+            "note": args.note,
+            "force": args.force,
+        }
+        if args.ttl:
+            payload["ttl_seconds"] = args.ttl
+        if sess.isdigit():
+            payload["transcript_id"] = int(sess)
+        else:
+            payload["session_key"] = sess
+        res, err = _lease_call("/v1/leases", method="POST", payload=payload)
+        if err:
+            code, detail = err
+            if code == 409 and isinstance(detail, dict):
+                print(f"拿不到执行权：{detail.get('holder')}（{detail.get('holder_id')}）"
+                      f"正在 {detail.get('machine') or '某台机器'} 上跑这条会话，"
+                      f"还剩 {_lease_left(detail.get('ttl_left_seconds', 0))}（generation "
+                      f"{detail.get('generation')}）。")
+                print("  · 等它释放后重试，或让对方 `agenthub lease transfer ... --to <你>`")
+                print("  · 归属人/管理员可加 --force 强制夺回（旧进程的写入会被 fence）")
+                return
+            sys.exit(f"申请失败（{code}）：{detail}")
+        verb = "已夺取执行权" if res.get("stolen") else "已获得执行权"
+        print(f"{verb}：{res['session_key']}  generation={res['generation']}")
+        _print_lease_one(res)
+        print(f"\n  续租：agenthub lease renew {res['session_key']} --generation {res['generation']}")
+        print(f"  释放：agenthub lease release {res['session_key']} --generation {res['generation']}")
+
+    elif action == "renew":
+        if not sess or not args.generation:
+            sys.exit("用法：agenthub lease renew <agent:ext_id> --generation <N>")
+        res, err = _lease_call(f"/v1/leases/{key_path}/renew", method="POST", payload={
+            "holder_id": args.holder or _holder_id(),
+            "generation": args.generation,
+            **({"ttl_seconds": args.ttl} if args.ttl else {}),
+        })
+        if err:
+            code, detail = err
+            if code == 409 and isinstance(detail, dict):
+                sys.exit(f"续租被拒：{detail.get('reason','执行权已不属于你')}。"
+                         f"当前 holder={detail.get('holder_id')} generation={detail.get('generation')}。"
+                         f"请停止写入，重新 acquire。")
+            sys.exit(f"续租失败（{code}）：{detail}")
+        print(f"已续租：{res['session_key']}  剩 {_lease_left(res.get('ttl_left_seconds', 0))}")
+
+    elif action == "release":
+        if not sess:
+            sys.exit("用法：agenthub lease release <agent:ext_id> [--generation N]")
+        q = {"holder_id": args.holder or _holder_id()}
+        if args.generation:
+            q["generation"] = args.generation
+        res, err = _lease_call(
+            f"/v1/leases/{key_path}?" + urllib.parse.urlencode(q), method="DELETE")
+        if err:
+            sys.exit(f"释放失败（{err[0]}）：{err[1]}")
+        print(f"已释放：{res['session_key']}")
+
+    elif action == "transfer":
+        if not sess or not args.to:
+            sys.exit("用法：agenthub lease transfer <agent:ext_id> --to <对方 holder_id>")
+        payload = {"to_holder_id": args.to, "to_machine": args.to_machine, "note": args.note}
+        if args.ttl:
+            payload["ttl_seconds"] = args.ttl
+        res, err = _lease_call(f"/v1/leases/{key_path}/transfer", method="POST", payload=payload)
+        if err:
+            sys.exit(f"交接失败（{err[0]}）：{err[1]}")
+        print(f"已交接：{res['session_key']}  {res.get('transferred_from')} → {res['holder_id']}")
+        print(f"  新 generation={res['generation']}（旧进程的写入从此被 fence）")
+        _print_lease_one(res)
+
+
 def main():
     p = argparse.ArgumentParser(prog="agenthub", description="团队会话原件回放客户端")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -539,6 +690,20 @@ def main():
     wr.add_argument("--no-db", action="store_true", help="配合 --apply：不写索引库")
     wr.add_argument("--yes", action="store_true", help="跳过确认")
     wr.set_defaults(fn=cmd_wb_revert)
+
+    le = sub.add_parser("lease", help="会话执行权租约：谁现在正在跑这条会话")
+    le.add_argument("action", choices=["status", "acquire", "renew", "release", "transfer"])
+    le.add_argument("session", nargs="?", default="", help="transcript id 或 agent:ext_id")
+    le.add_argument("--generation", type=int, default=0, help="renew/release 时带上你拿到的 generation")
+    le.add_argument("--holder", default="", help="holder id（默认 本机名:pid）")
+    le.add_argument("--to", default="", help="transfer 的目标 holder id")
+    le.add_argument("--to-machine", default="", help="transfer 的目标机器名")
+    le.add_argument("--ttl", type=int, default=0, help="租约秒数（默认取服务器配置）")
+    le.add_argument("--mode", choices=["exec", "read"], default="exec")
+    le.add_argument("--note", default="", help="备注：这条会话在干什么")
+    le.add_argument("--force", action="store_true", help="强制夺回（仅归属人/管理员）")
+    le.add_argument("--all", action="store_true", help="status 时包含已过期租约")
+    le.set_defaults(fn=cmd_lease)
 
     args = p.parse_args()
     if not HUB_TOKEN:

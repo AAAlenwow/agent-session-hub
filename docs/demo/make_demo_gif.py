@@ -132,10 +132,21 @@ S2 = [
     [("  初版限流按 1/3 峰值留余量，定 100，偏保守。", TEXT)],
 ]
 
+S3 = [
+    [("$ ", GREEN), ("agenthub lease status", WHITE)],
+    [("claude-code:9f2c...  ", CYAN), ("held by alice-mac:51234", TEXT)],
+    [("                      @ Alice 的 MacBook · gen 4 · 38m left", DIM)],
+    [],
+    [("$ ", GREEN), ("agenthub lease transfer claude-code:9f2c... --to build-01:7788", WHITE)],
+    [("已交接：alice-mac:51234 → build-01:7788", GREEN)],
+    [("新 generation=5（旧进程的写入从此被 fence）", DIM)],
+]
+
 CARDS = [
-    ("Alice 的 MacBook", "12 sessions · 3 projects", "限流从 100 调到 500 的原因", "3d · api-gateway"),
-    ("build-01", "31 sessions · 6 projects", "重试改指数退避", "2w · billing"),
-    ("iPhone", "4 sessions · 2 projects", "排查 5xx 突增", "1d · api-gateway"),
+    ("Alice 的 MacBook", "12 sessions · 3 projects", "限流从 100 调到 500 的原因",
+     "3d · api-gateway", True),
+    ("build-01", "31 sessions · 6 projects", "重试改指数退避", "2w · billing", False),
+    ("iPhone", "4 sessions · 2 projects", "排查 5xx 突增", "1d · api-gateway", False),
 ]
 
 
@@ -160,16 +171,16 @@ def frame_scene1(budget):
     return img
 
 
-def frame_scene2(budget):
+def frame_scene(lines, budget, title, accent):
     img = Image.new("RGB", (W, H), "#010409")
     d = ImageDraw.Draw(img)
-    window(d, "claude — team-memory (MCP)", BLUE)
+    window(d, title, accent)
     y = TOP
-    for segs in S2:
+    for segs in lines:
         x = LEFT
         for text, color in segs:
             if budget <= 0:
-                draw_mixed(d, x, y, "▋", BLUE)
+                draw_mixed(d, x, y, "▋", accent)
                 return img
             t = text[:budget]
             draw_mixed(d, x, y, t, color)
@@ -193,14 +204,17 @@ def frame_phone(shown_cards: int):
     draw_ui(d, px + 28, py + 64, "机器 · 会话 · 最近结论", 13, DIM)
 
     y = py + 92
-    for i, (machine, stat, title, meta) in enumerate(CARDS):
+    for i, (machine, stat, title, meta, leased) in enumerate(CARDS):
         if i >= shown_cards:
             break
         d.rounded_rectangle([px + 18, y, px + pw - 18, y + 96], radius=10, fill=PANEL, outline=BORDER)
         draw_ui(d, px + 34, y + 12, machine, 15, CYAN)
         draw_ui(d, px + 34, y + 34, stat, 11, DIM)
         draw_ui(d, px + 34, y + 56, title, 13, TEXT)
-        draw_ui(d, px + 34, y + 74, meta, 11, DIM)
+        if leased:
+            draw_ui(d, px + 34, y + 74, "● alice 正在跑 · 剩 38m", 11, GREEN)
+        else:
+            draw_ui(d, px + 34, y + 74, meta, 11, DIM)
         y += 108
 
     draw_ui(d, px + 28, py + ph - 34, "只读 · HttpOnly cookie · 30d", 12, DIM)
@@ -244,16 +258,22 @@ def build_frames() -> list[Image.Image]:
 
     total1 = sum(len(t) for segs in S1 for t, _ in segs)
     total2 = sum(len(t) for segs in S2 for t, _ in segs)
+    total3 = sum(len(t) for segs in S3 for t, _ in segs)
 
     hold(frame_scene1(0), 6)
     for b in range(0, total1 + 1, 9):
         frames.append(frame_scene1(min(b, total1)))
     hold(frame_scene1(total1), 34)
 
-    hold(frame_scene2(0), 6)
+    hold(frame_scene(S2, 0, "claude — team-memory (MCP)", BLUE), 6)
     for b in range(0, total2 + 1, 9):
-        frames.append(frame_scene2(min(b, total2)))
-    hold(frame_scene2(total2), 50)
+        frames.append(frame_scene(S2, min(b, total2), "claude — team-memory (MCP)", BLUE))
+    hold(frame_scene(S2, total2, "claude — team-memory (MCP)", BLUE), 50)
+
+    hold(frame_scene(S3, 0, "agenthub — session leases", GREEN), 6)
+    for b in range(0, total3 + 1, 9):
+        frames.append(frame_scene(S3, min(b, total3), "agenthub — session leases", GREEN))
+    hold(frame_scene(S3, total3, "agenthub — session leases", GREEN), 45)
 
     for n in (1, 2, 3):
         hold(frame_phone(n), 16)

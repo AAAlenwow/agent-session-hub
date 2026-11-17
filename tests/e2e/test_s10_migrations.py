@@ -43,7 +43,8 @@ def test_all_tables_exist(migrated):
         "select table_name from information_schema.tables where table_schema='public' "
         "order by 1", db=migrated).splitlines())
     assert tables == {"users", "sessions", "events", "projects", "project_owners",
-                      "transcripts", "transcript_revisions", "resume_claims"}
+                      "transcripts", "transcript_revisions", "resume_claims",
+                      "session_leases"}
 
 
 def test_schema_matches_fresh_install(migrated):
@@ -92,7 +93,7 @@ def test_migrations_are_rerunnable(migrated):
     for f in sorted(MIG.glob("*.sql")):
         H.sql(f.read_text(encoding="utf-8"), db=migrated)
     assert H.sql("select count(*) from information_schema.tables where table_schema='public'",
-                 db=migrated) == "8"
+                 db=migrated) == "9"
 
 
 def test_fresh_schema_is_idempotent(migrated):

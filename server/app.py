@@ -22,6 +22,7 @@ from auth import current_user as auth, sha256
 from prompt import build_prompt
 from mobile import router as mobile_router
 from transcripts_api import router as transcripts_router
+from leases import router as leases_router
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgresql://agenthub:agenthub@127.0.0.1:5432/agenthub"
@@ -48,9 +49,10 @@ async def lifespan(app: FastAPI):
     await app.state.pool.close()
 
 
-app = FastAPI(title="agent-session-hub", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="agent-session-hub", version="0.6.0", lifespan=lifespan)
 app.state.config = HUB_CONFIG          # 供原件层路由读取部署策略
 app.include_router(transcripts_router)
+app.include_router(leases_router)
 app.include_router(mobile_router)
 
 

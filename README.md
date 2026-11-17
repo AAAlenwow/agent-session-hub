@@ -208,6 +208,33 @@ agenthub wb-pull 7 --revision 3 --into ~/work/2026-10-16-10-42-31 # 指定历史
 顺带一句：WorkBuddy 也能挂同一套 MCP（`~/.workbuddy/mcp.json` 加一个 stdio 项，和 Claude Code 同形），
 挂上后 WorkBuddy 里的 agent 一样能 `search_team_memory` / `get_project_handover`。
 
+## 跨机继续：会话执行权（v0.6）
+
+原件层解决了「换一台机器能不能接着聊」，但没解决「两个人同时接着聊」。
+组织里更常见的痛点是：一件事从头到尾干完之后，整条活就焊死在那台机器上——人休假、
+换电脑、机器关机，接手的人只能从头问一遍，或者去要一份「你跟我讲讲当时怎么想的」的口头交接。
+
+v0.6 把**执行权**做成服务端的显式状态，而不是「谁先连上算谁的」：
+
+```bash
+agenthub lease status                                # 现在谁在跑哪条会话
+agenthub lease acquire 42                            # 我要接着跑（被占会告诉你是谁、到几点）
+agenthub lease transfer claude-code:abc --to build-01:7788   # 主动交接到云上的 runner
+agenthub lease release claude-code:abc --generation 5        # 干完还回去
+```
+
+- **同一会话同一时刻只有一个执行者。** 别人申请拿到 409，附带「谁、在哪台机器、还剩多久、generation 多少」，不是一句 Conflict。
+- **generation 是栅栏。** 每次交接 +1；旧进程带旧 generation 的续租或写入会被拒——解决的是「两边同时写、上下文互相覆盖」，而不只是抢一把锁。
+- **续租而不是硬过期。** 长任务不会被 24 小时静默夺走（原来的回放占用锁就是这个毛病）。
+- **MCP 三个工具**让 agent 自己判断该不该动手：`list_active_leases` / `acquire_session_lease` / `release_session_lease`。
+- **手机上看得见**：`/m` 的卡片和详情页显示「▶ 正在跑 · alice · 剩 38m」。
+
+和调度中台（[agent-autoloop](https://github.com/KKKKhazix/agent-autoloop) 这类）
+是互补关系：**它让活跑起来，这一层让活换手时不丢。** autoloop 把「事」抽象成事件流，
+但事最终要落在一台机器的某个进程里；执行权留在服务端，才谈得上「换机器、换人、换到云上」。
+云上按需起一个 runner 接手同一条会话的完整五步流程，见
+[docs/SESSION_LEASE.md](docs/SESSION_LEASE.md)。
+
 ## 项目管理与负责人交接
 
 项目由 hooks 上报时按仓库名**自动创建并关联**（也可手动登记 git remote）。负责人通过 `assign` 指派，
@@ -447,13 +474,13 @@ python -m venv .venv && . .venv/bin/activate
 pip install -r server/requirements.txt pytest
 pytest tests -q --ignore=tests/e2e
 
-# 全量场景（真栈）：起独立栈（端口 18421）+ 跑 129 个场景用例
+# 全量场景（真栈）：起独立栈（端口 18421）+ 跑 159 个场景用例
 tests/e2e/run_e2e.sh down
 PYTHON=.venv/bin/python tests/e2e/run_e2e.sh run
 ```
 
 场景测试覆盖：鉴权边界、上报与脱敏、项目交接时间线、部署专属提示词、原件层版本/回滚/占用锁、
-WorkBuddy 打包体往返、hook 与 MCP（含 stdio 协议）、CLI 全部子命令、并发与升级路径。
+会话租约（申请/409 归属/续租/栅栏/交接/过期接管）、WorkBuddy 打包体往返、hook 与 MCP（含 stdio 协议）、CLI 全部子命令、并发与升级路径。
 细节见 `tests/e2e/README.md`，最近一次结果见 `docs/TEST_REPORT.md`。
 
 - 代码审查标准与流程：`docs/CODE_REVIEW_STANDARD.md`
@@ -464,8 +491,8 @@ WorkBuddy 打包体往返、hook 与 MCP（含 stdio 协议）、CLI 全部子�
 
 | 状态 | 内容 |
 |---|---|
-| ✅ 已完成 | 事件上报 + Postgres 存储 + 检索 API + MCP 查询；Codex notify 细粒度事件；入库前正则脱敏；turn_end 思维链摘要；机器溯源；通用上报契约（`generic_report.py`）；手机只读端 `/m`；dsh-team 审批/审计链上行 |
-| 🚧 下一步 | 手机端团队任务看板与审批（唯一计划给 `/m` 加写操作，需单独设计权限）；DSH 内置挂载 MCP（建队前自动 `search_team_memory` / `get_project_handover`） |
+| ✅ 已完成 | 事件上报 + Postgres 存储 + 检索 API + MCP 查询；Codex notify 细粒度事件；入库前正则脱敏；turn_end 思维链摘要；机器溯源；通用上报契约（`generic_report.py`）；手机只读端 `/m`；dsh-team 审批/审计链上行；**会话执行权租约（v0.6，含 generation 栅栏与主动交接）** |
+| 🚧 下一步 | `agenthub run`：把 runner 的五步（申请租约→拉原件→跑→回传→释放）做成一条命令；把 `resume_claims` 收敛成 `lease mode=read`，只留一个概念；手机端团队任务看板与审批（唯一计划给 `/m` 加写操作，需单独设计权限） |
 | 💡 可选 | 服务端 LLM 生成回合摘要（替代 hook 尾部截取）；zhparser 中文分词或向量检索；"工作实况"直播（谁在改哪个文件）；按人/项目的保留期策略 |
 
 ## 已知边界
@@ -478,6 +505,11 @@ WorkBuddy 打包体往返、hook 与 MCP（含 stdio 协议）、CLI 全部子�
   上线前仍要提醒全员不要往 prompt 里粘密钥。
 - **WorkBuddy 的还原是「补索引」，不是官方 API**：`workbuddy.db` 是 WorkBuddy 内部库，写入前一定自动备份，
   且写死列名会因版本升级而失败 —— 所以实现里按原机快照动态取列，多/少列都不会炸；但**升级 WorkBuddy 大版本后建议先 `--dry-run` 跑一遍**。
+- **租约只保证「单写者」，不保证顺序**：它拦的是两边同时写，不判断谁的内容更新。
+  内容层面的合并仍然靠 `wb-diff` / `wb-revert` 看。
+- **栅栏默认是 `warn`**：想彻底挡住旧进程的写入要开 `fencing: strict`，且客户端上传时带
+  `lease_generation`。默认不严格是为了不打断已有部署。
+- **hub 挂了谁也申请不到执行权**：这是有意的——宁可停下，也不要两边同时写。
 - **WorkBuddy 的 token 统计口径**：`input_tokens` 含缓存命中部分（每次请求都把整段 prompt 重发），
   `cache_read_tokens` 是其中的命中量，算钱时别把两者相加。这是与 Claude Code（二者互斥）不同的地方。
 

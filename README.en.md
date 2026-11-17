@@ -184,6 +184,43 @@ Then just ask, in any agent: *"who changed the rate limiter and why?"*
 | `get_project_handover(project)` | Generated handover report (see below) |
 | `share_team_memory(...)` | Explicitly publish a conclusion (used in `curated` / `strict` mode) |
 | `team_memory_instructions()` | Fetch this deployment's live sharing policy |
+| `list_active_leases()` | Who is currently executing which session (call before taking over) |
+| `acquire_session_lease(session_id)` | Claim execution rights; returns a generation token |
+| `release_session_lease(session_key, generation)` | Hand execution rights back |
+
+## Carrying on from another machine: session leases (v0.6)
+
+The archive layer answers "can I resume on a different machine". It does not answer
+"can two people resume at the same time" — and the more common failure in a real team is
+that **a piece of work gets welded to one machine**. The person goes on leave, changes laptops,
+or the machine dies, and whoever takes over has to ask "so what were you thinking?".
+
+v0.6 makes execution rights an explicit server-side state instead of first-connect-wins:
+
+```bash
+agenthub lease status                                # who is running what, right now
+agenthub lease acquire 42                            # I want to continue (409 tells you who holds it)
+agenthub lease transfer claude-code:abc --to build-01:7788   # hand off to a runner in the cloud
+agenthub lease release claude-code:abc --generation 5        # done, give it back
+```
+
+- **One executor per session.** Others get a 409 that names the holder, the machine, the time
+  left and the generation — not a bare conflict.
+- **`generation` is a fencing token.** It increments on every hand-off; renewals and writes
+  carrying a stale generation are rejected. That is what stops two contexts from silently
+  overwriting each other, not just a mutex.
+- **Renew, don't hard-expire.** Long-running work is no longer seized at the 24-hour mark.
+- **Three MCP tools** let the agent decide for itself: `list_active_leases`,
+  `acquire_session_lease`, `release_session_lease`.
+- **Visible on the phone**: `/m` shows `▶ running · alice · 38m left` on the card and timeline.
+
+This is complementary to scheduling hubs such as
+[agent-autoloop](https://github.com/KKKKhazix/agent-autoloop): **they make work run; this layer
+makes work survive a hand-off.** A scheduler abstracts work into an event stream, but the work
+still lands in one process on one machine. Keeping execution rights on the server is what makes
+"another machine / another person / a runner in the cloud" possible at all. The full five-step
+flow for picking up the same session on an on-demand runner is in
+[docs/SESSION_LEASE.md](docs/SESSION_LEASE.md).
 
 ## Handover: the reason this exists
 
@@ -276,6 +313,12 @@ It opens the database read-only (never fights the orchestrator's own lock), keep
 - **WorkBuddy restore writes into `workbuddy.db`**, an internal SQLite database. It backs up
   before writing and adapts to the live column set, but always `--dry-run` after a major
   WorkBuddy upgrade.
+- **A lease guarantees a single writer, not ordering.** It stops two processes from writing at
+  once; it does not decide whose content is newer. Use `wb-diff` / `wb-revert` for that.
+- **Fencing defaults to `warn`.** To actually block a stale writer, set `fencing: strict` and send
+  `lease_generation` on upload. The default is lenient so existing deployments keep working.
+- **If the hub is down, nobody can acquire a lease.** That is deliberate: stop rather than let
+  both sides write.
 - **Do not sync `~/.claude` with a cloud drive.** Concurrent writers corrupt locks. Use `pull`.
 
 ## Prior art, and where this differs
@@ -313,11 +356,11 @@ pip install -r server/requirements.txt pytest
 pytest tests -q --ignore=tests/e2e          # unit
 
 tests/e2e/run_e2e.sh down
-PYTHON=.venv/bin/python tests/e2e/run_e2e.sh run   # full stack, 129 scenarios
+PYTHON=.venv/bin/python tests/e2e/run_e2e.sh run   # full stack, 159 scenarios
 ```
 
 Covers: auth boundaries, ingest + redaction, handover timeline, deployment-specific prompts,
-archive revisions / revert / claim locks, WorkBuddy bundle round-trip, hooks + MCP over stdio,
+archive revisions / revert / claim locks, session leases / fencing / transfer, WorkBuddy bundle round-trip, hooks + MCP over stdio,
 every CLI subcommand, concurrency, and upgrade paths. See `tests/e2e/README.md` and
 `docs/TEST_REPORT.md`.
 

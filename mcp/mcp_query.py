@@ -9,6 +9,7 @@
 """
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -219,6 +220,107 @@ def get_project_handover(project: str) -> str:
     for q in data["recent_prompts"][:30]:
         lines.append(f"  [{q['ts']}] {q['summary']}")
     return "\n".join(lines)
+
+# ---------------- 会话执行权租约（v0.6） ----------------
+# 这三个工具让 agent 在「动手改别人的会话/接手一条没跑完的活」之前先问一句
+# 「这台机器现在有权接着跑吗」，而不是两边同时写同一份上下文。
+
+
+def _holder() -> str:
+    machine = os.environ.get("AGENT_HUB_MACHINE") or __import__("socket").gethostname()
+    return f"{machine}:{os.getpid()}"
+
+
+def _lease_call(method: str, path: str, payload: dict = None):
+    """返回 (data, error_text)。409 是人话不是异常：agent 要能读懂并据此决定等还是走。"""
+    data = None
+    headers = {"Authorization": "Bearer " + HUB_TOKEN}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(HUB_URL.rstrip("/") + path, data=data,
+                                 headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            return json.loads(r.read().decode("utf-8")), None
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", "replace")
+        try:
+            detail = json.loads(raw).get("detail", raw)
+        except Exception:
+            detail = raw
+        if e.code == 409 and isinstance(detail, dict):
+            return None, (
+                f"这条会话正被 {detail.get('holder')}（{detail.get('holder_id')}）"
+                f"在 {detail.get('machine') or '某台机器'} 上执行，"
+                f"generation={detail.get('generation')}，"
+                f"还剩 {int(detail.get('ttl_left_seconds') or 0) // 60} 分钟。"
+                f"不要同时写。等对方释放，或请归属人用 force 夺回。"
+            )
+        return None, f"{e.code}: {detail}"
+
+
+@mcp.tool()
+def list_active_leases() -> str:
+    """列出团队里现在正在执行（持有租约）的会话：谁、在哪台机器、还剩多久。
+
+    动手接手一条会话、或准备改别人负责的代码之前，先调它确认没人在跑。"""
+    data, err = _lease_call("GET", "/v1/leases")
+    if err:
+        return err
+    rows = data.get("leases", [])
+    if not rows:
+        return "当前没有活跃租约：没有人正在执行任何会话。"
+    out = []
+    for r in rows:
+        out.append(
+            f"{r['session_key']} · {r['holder']} @ {r.get('machine') or '未知机器'}"
+            f" · mode={r['mode']} · generation={r['generation']}"
+            f" · 剩 {int(r.get('ttl_left_seconds') or 0) // 60} 分钟"
+            + (f" · {r['note']}" if r.get("note") else "")
+        )
+    return "\n".join(out)
+
+
+@mcp.tool()
+def acquire_session_lease(session_id: int, ttl_minutes: int = 60, note: str = "") -> str:
+    """申请一条会话的执行权（等价于「这台机器现在由我来跑它」）。
+
+    成功返回 generation，之后续租/释放/写入都要带它；被占用则明确告诉你谁在跑。
+    session_id 是 transcript id（见 recent_team_sessions / list 输出里的 #编号）。
+    note 写清你要干什么（例如「接手 alice 的限流重构」），别人能看到。"""
+    # 只给 transcript_id，服务端自己推导 session_key（客户端不需要猜 agent/ext_id）
+    payload = {
+        "transcript_id": session_id,
+        "holder_id": _holder(),
+        "machine": os.environ.get("AGENT_HUB_MACHINE") or "",
+        "mode": "exec",
+        "note": note,
+        "ttl_seconds": max(60, int(ttl_minutes) * 60),
+    }
+    res, err = _lease_call("POST", "/v1/leases", payload)
+    if err:
+        return err
+    return (
+        f"已获得执行权：{res['session_key']}\n"
+        f"  generation={res['generation']}，到期 {res['expires_at']}\n"
+        f"  续租用 renew（带上这个 generation），干完用 release_session_lease 释放。\n"
+        f"  上传新内容时带上 lease_generation={res['generation']}，否则可能覆盖别人的进度。"
+    )
+
+
+@mcp.tool()
+def release_session_lease(session_key: str, generation: int = 0) -> str:
+    """释放执行权。generation 建议带上：不带的话可能把别人刚接手的租约删掉。"""
+    path = f"/v1/leases/{urllib.parse.quote(session_key, safe='')}"
+    if generation:
+        path += f"?generation={int(generation)}"
+    q = "&" if "?" in path else "?"
+    path += f"{q}holder_id={urllib.parse.quote(_holder(), safe='')}"
+    res, err = _lease_call("DELETE", path)
+    if err:
+        return err
+    return f"已释放：{res['session_key']}。别人现在可以接手了。"
 
 
 if __name__ == "__main__":

@@ -4,11 +4,14 @@ import hashlib
 import json
 import re
 from datetime import datetime, timedelta
+from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from auth import current_user as auth
 from privacy import redact
+from leases import fencing_check
 from transcripts_parse import (
     bundle_guard,
     decompress_limited,
@@ -27,6 +30,20 @@ _EXT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 def _cfg(request: Request) -> dict:
     return (getattr(request.app.state, "config", {}) or {}).get("transcripts", {})
+
+
+def _lease_cfg(request: Request) -> dict:
+    return (getattr(request.app.state, "config", {}) or {}).get("lease", {}) or {}
+
+
+def _fence_header(response: Optional[Response], warning: Optional[str]) -> None:
+    """warn 模式把栅栏告警放进响应头：不拒写入，但让调用方知道自己可能已经失去执行权。
+
+    HTTP 头只能是 latin-1，而告警里会带机器名（可能是中文），所以整体做百分号编码；
+    客户端用 urllib.parse.unquote 还原。
+    """
+    if response is not None and warning:
+        response.headers["X-Lease-Warning"] = quote(_hdr(warning[:300]), safe="")
 
 
 def _ts(value):
@@ -69,12 +86,14 @@ async def _read_body(request: Request, limit: int) -> bytes:
 @router.post("/v1/transcripts")
 async def upload_transcript(
     request: Request,
+    response: Response,
     agent: str = "claude-code",
     ext_id: str = "",
     cwd: str = "",
     project: str = "",
     machine: str = "",
     message: str = "",
+    lease_generation: Optional[int] = None,
     user=Depends(auth),
 ):
     """上传一份会话原件（JSONL 或 tar.gz 打包体）= 一次 git 式提交。
@@ -112,8 +131,25 @@ async def upload_transcript(
     # 版本分配必须串行化：读 prev.rev → 算 new_rev → 写，全程在同一事务的
     # advisory lock 之内。否则两个并发上传会拿到同一个 rev，
     # on conflict 静默吞掉一份内容，而两个请求都收到 200（API 撒谎）。
+    # 栅栏：这条会话若正被别人执行，写入可能是「两个进程同时改同一份上下文」。
+    # 锁顺序固定为 lease → t，与 acquire/transfer 一致，避免与其他路径死锁。
+    fencing = str(_lease_cfg(request).get("fencing", "warn")).lower()
+    lease_key = f"{agent}:{ext_id}"
+    lease_warning: Optional[str] = None
+
     async with pool.acquire() as conn:
         async with conn.transaction():
+            if fencing != "off":
+                await conn.execute(
+                    "select pg_advisory_xact_lock(hashtext($1))", f"lease:{lease_key}")
+                lease_warning = await fencing_check(conn, lease_key, lease_generation)
+                if lease_warning and fencing == "strict":
+                    raise HTTPException(409, detail={
+                        "error": "session is being executed elsewhere",
+                        "detail": lease_warning,
+                        "hint": "先 acquire 该会话的租约（会拿到新的 generation），再带 lease_generation 上传",
+                    })
+                _fence_header(response, lease_warning)
             await conn.execute(
                 "select pg_advisory_xact_lock(hashtext($1))",
                 f"t:{user['id']}:{agent}:{ext_id}",
@@ -211,6 +247,7 @@ async def upload_transcript(
                 row["id"], new_rev - keep,
             )
 
+    _fence_header(response, lease_warning)
     return {
         "ok": True,
         "transcript_id": row["id"],
