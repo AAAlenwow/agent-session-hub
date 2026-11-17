@@ -1,4 +1,4 @@
--- agent-hub schema (Postgres 14+)
+-- agent-session-hub schema (Postgres 14+)
 create extension if not exists pg_trgm;
 
 create table if not exists users (

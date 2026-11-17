@@ -1,4 +1,4 @@
-# agent-hub 部署配置 —— 修改后 docker compose restart hub 生效。
+# agent-session-hub 部署配置 —— 修改后 docker compose restart hub 生效。
 #
 # 本文件决定 /v1/agent-prompt 生成什么样的「给 agent 看的使用说明」。
 # 关键设计：提示词由部署实例动态生成，改这里 = 换一套提示词。

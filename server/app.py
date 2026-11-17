@@ -1,4 +1,4 @@
-"""agent-hub: 团队级 agent 会话事件中枢（MVP）
+"""agent-session-hub: 团队级 agent 会话事件中枢（MVP）
 
 职责三件事：
   1. 接收各人机器上 hooks 上报的会话事件（带 Bearer token，逐人归因）
@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
     await app.state.pool.close()
 
 
-app = FastAPI(title="agent-hub", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="agent-session-hub", version="0.5.0", lifespan=lifespan)
 app.state.config = HUB_CONFIG          # 供原件层路由读取部署策略
 app.include_router(transcripts_router)
 app.include_router(mobile_router)

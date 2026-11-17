@@ -23,7 +23,7 @@ RUN = os.environ.get("AGENT_HUB_E2E_RUN") or uuid.uuid4().hex[:6]
 @pytest.fixture(scope="session")
 def hub() -> H.Api:
     if not H.alive():
-        pytest.skip(f"agent-hub 测试栈未启动（{H.BASE_URL}）；先跑 tests/e2e/run_e2e.sh up")
+        pytest.skip(f"agent-session-hub 测试栈未启动（{H.BASE_URL}）；先跑 tests/e2e/run_e2e.sh up")
     return H.Api()
 
 

@@ -49,7 +49,7 @@ def build_prompt(cfg: dict) -> str:
     a = lines.append
     a(f"# {name} · team-memory MCP 使用说明")
     a("")
-    a(f"> 本说明由你们私有部署的 agent-hub 服务器（{url}）按其部署配置动态生成，")
+    a(f"> 本说明由你们私有部署的 agent-session-hub 服务器（{url}）按其部署配置动态生成，")
     a("> **只对这一套部署有效**。不同服务器的私有化程度不同，生成的规则也不同，")
     a("> 不要把这里的规则套用到其他部署。配置变更后以 `team_memory_instructions()` 的最新返回为准。")
     a("")

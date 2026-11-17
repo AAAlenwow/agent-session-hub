@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Claude Code 通用 hook：把会话事件上报到 agent-hub。
+"""Claude Code 通用 hook：把会话事件上报到 agent-session-hub。
 
 覆盖所有 Claude Code 协议兼容 CLI（Claude Code / GLM / MiniMax / Kimi 等），
 它们共享同一套 hooks 机制，只是 agent 名用 AGENT_HUB_AGENT 环境变量区分。
@@ -108,7 +108,7 @@ def post(data):
 
 
 def build_event(msg):
-    """把 Claude Code hook 消息转成 agent-hub 事件，不认识的事件返回 None。"""
+    """把 Claude Code hook 消息转成 agent-session-hub 事件，不认识的事件返回 None。"""
     ev = msg.get("hook_event_name", "")
 
     if ev == "UserPromptSubmit":

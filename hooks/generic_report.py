@@ -84,7 +84,7 @@ def from_stdin(raw: str) -> dict:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="agent-hub 通用上报器")
+    ap = argparse.ArgumentParser(description="agent-session-hub 通用上报器")
     ap.add_argument("--session-id", help="会话 id；不给则读 stdin JSON")
     ap.add_argument("--agent", default=os.environ.get("AGENT_HUB_AGENT", "dsh"))
     ap.add_argument("--project", default=os.environ.get("AGENT_HUB_PROJECT", ""))

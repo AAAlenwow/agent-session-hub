@@ -1,4 +1,4 @@
-# agent-hub
+# agent-session-hub
 
 **AI 编程 agent 的团队记忆中枢 —— 自建、事件优先、不集中存 session 文件。**
 
@@ -19,11 +19,15 @@
 一句 60 字的回合结论，带人、仓库、文件清单、时间戳，能搜、能引用、几乎不占空间；
 一份 4MB 的 JSONL 在团队规模下三样都做不到。
 
+![demo：CLI 列表 → agent 检索团队记忆 → 手机端 /m](docs/demo/demo.gif)
+
+*（演示内容为示例数据；GIF 由 `docs/demo/make_demo_gif.py` 生成，可复现。）*
+
 ## 服务器部署
 
 ```bash
 # 0) 取代码
-git clone https://github.com/AAAlenwow/agent-hub.git && cd agent-hub
+git clone https://github.com/AAAlenwow/agent-session-hub.git && cd agent-session-hub
 
 # 1) 准备
 cp .env.example .env && chmod 600 .env    # 填 POSTGRES_PASSWORD / ADMIN_TOKEN
@@ -271,6 +275,10 @@ agent 也可随时调用 MCP 工具 `team_memory_instructions()` 自己拉取最
 
 ## 成员机器接入（一次性，3 分钟）
 
+> 安装目录用 `~/.agent-hub`、环境变量前缀是 `AGENT_HUB_`：项目原名叫 agent-hub，
+> 这些名字已经写进各台机器的 hooks 配置里，为不弄坏已部署实例所以沿用。
+> 目录本身随便换，把下面命令里的绝对路径一起改掉即可。
+
 ```bash
 # 1) 安装 hook / MCP / CLI（CLI 只依赖 Python 标准库，两个文件要放同一目录）
 mkdir -p ~/.agent-hub
@@ -486,7 +494,7 @@ WorkBuddy 打包体往返、hook 与 MCP（含 stdio 协议）、CLI 全部子�
 - [`iintuziasty-web/team-room`](https://github.com/iintuziasty-web/team-room) /
   [`abnegate/magents`](https://github.com/abnegate/magents)——自托管共享工作区 / 会话总线。
 
-`agent-hub` 只在四点上有区别，其他地方可能不如上面几个：
+`agent-session-hub` 只在四点上有区别，其他地方可能不如上面几个：
 
 1. **一等公民是事件，不是 transcript**——按「项目 / 负责人 / 机器 / 文件 / 工具 / 时间」这种
    溯源结构检索，而不是对整段聊天做全文搜索。

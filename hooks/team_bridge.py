@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""把 dsh-team 的编排 / 审批 / 审计事件转发到 agent-hub（上行通道）。
+"""把 dsh-team 的编排 / 审批 / 审计事件转发到 agent-session-hub（上行通道）。
 
 为什么需要它：dsh-team 的 sidecar 把任务流转、成员动作、审批留档、文件改动哈希
 都落在本机 `~/.dsh/team/team.db`，但这些记录只在**这一台机器的面板里**能看。
-推到 agent-hub 之后，同一份记录就变成团队可检索的事件——手机上（`/m`）能看，
+推到 agent-session-hub 之后，同一份记录就变成团队可检索的事件——手机上（`/m`）能看，
 别的机器上的 agent 也能通过 MCP 搜到「谁在哪台机器改了哪个文件、谁批的」。
 
 设计取舍：
@@ -350,7 +350,7 @@ def run_once(dry=False, limit=60):
 def main():
     global VERBOSE
     ap = argparse.ArgumentParser(
-        description="dsh-team → agent-hub 事件桥接（只读 team.db，水位去重）")
+        description="dsh-team → agent-session-hub 事件桥接（只读 team.db，水位去重）")
     ap.add_argument("--once", action="store_true", help="推一次就退出（cron 用这个）")
     ap.add_argument("--watch", action="store_true", help="常驻轮询")
     ap.add_argument("--interval", type=int, default=30, help="轮询间隔秒，默认 30")

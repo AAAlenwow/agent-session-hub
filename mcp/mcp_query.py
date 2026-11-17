@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""agent-hub MCP 查询端：让任何支持 MCP 的 agent 查询团队会话记忆。
+"""agent-session-hub MCP 查询端：让任何支持 MCP 的 agent 查询团队会话记忆。
 
 安装（每个成员的机器上执行一次）:
     claude mcp add team-memory --env AGENT_HUB_URL=https://mem.corp.local \

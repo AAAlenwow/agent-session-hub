@@ -17,7 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]        # agent-hub/
+ROOT = pathlib.Path(__file__).resolve().parents[2]        # agent-session-hub/
 E2E_DIR = pathlib.Path(__file__).resolve().parent
 DEFAULT_URL = "http://127.0.0.1:18421"
 COMPOSE_PROJECT = "agenthub-e2e"
